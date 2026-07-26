@@ -104,7 +104,7 @@ def _zeitgruppen_para(cell, gruppen, size=10):
 def _bul_farben(n):
     if n<2: return "FF3333","KRITISCH"
     if n<3: return "E07800","EINGESCHRAENKT"
-    return "10A050","VOLLSTÄNDIG"
+    return "10A050","AUSREICHEND"
 
 
 class StaerkemeldungDashboardExport:
