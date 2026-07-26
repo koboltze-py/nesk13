@@ -102,8 +102,8 @@ def _zeitgruppen_para(cell, gruppen, size=10):
         rn=p.add_run(" / ".join(namen)); rn.font.size=Pt(size); rn.font.name="Aptos"
 
 def _bul_farben(n):
-    if n<=2: return "FF3333","KRITISCH"
-    if n==3: return "E07800","EINGESCHRAENKT"
+    if n<2: return "FF3333","KRITISCH"
+    if n<3: return "E07800","EINGESCHRAENKT"
     return "10A050","VOLLSTÄNDIG"
 
 
@@ -328,15 +328,10 @@ class StaerkemeldungDashboardExport:
         _trenn(lc,AZ,oben=True)
         fc_hex,lbl_bul=_bul_farben(self._bul_aktiv)
         _para(lc,"BULMOR - FAHRZEUGSTATUS",bold=True,size=8.5,fg="000000",align="center",sb=1)
-        bul_tbl=lc.add_table(rows=1,cols=self.BULMOR_GESAMT); bul_tbl.style="Table Grid"
-        for i in range(self.BULMOR_GESAMT):
-            c=bul_tbl.cell(0,i); _set_bg(c,fc_hex if i<self._bul_aktiv else "444444")
-            p=c.add_paragraph(f"B{i+1}"); p.alignment=WD_ALIGN_PARAGRAPH.CENTER
-            p.paragraph_format.space_before=Pt(1); p.paragraph_format.space_after=Pt(1)
-            p.runs[0].font.size=Pt(9); p.runs[0].font.color.rgb=_rgb(WEISS)
-            p.runs[0].bold=True; p.runs[0].font.name="Aptos"
         ges=lc.add_paragraph(); ges.alignment=WD_ALIGN_PARAGRAPH.CENTER
-        ges.paragraph_format.space_before=Pt(1); ges.paragraph_format.space_after=Pt(0)
+        ges.paragraph_format.space_before=Pt(4); ges.paragraph_format.space_after=Pt(0)
+        rdot=ges.add_run("\u25CF  "); rdot.font.size=Pt(16); rdot.font.color.rgb=_rgb(fc_hex)
+        rdot.font.name="Aptos"
         r1=ges.add_run(f"{self._bul_aktiv}/{self.BULMOR_GESAMT}  ")
         r1.bold=True; r1.font.size=Pt(13); r1.font.color.rgb=_rgb(fc_hex); r1.font.name="Aptos"
         r2=ges.add_run(lbl_bul); r2.font.size=Pt(10); r2.font.color.rgb=_rgb(fc_hex); r2.font.name="Aptos"
