@@ -101,9 +101,10 @@ def _zeitgruppen_para(cell, gruppen, size=10):
         rz=p.add_run(f"{zeit}\t"); rz.font.size=Pt(size); rz.font.name="Aptos"
         rn=p.add_run(" / ".join(namen)); rn.font.size=Pt(size); rn.font.name="Aptos"
 
-def _bul_farben(n):
+def _bul_farben(n, gesamt=5):
     if n<2: return "FF3333","KRITISCH"
     if n<3: return "E07800","EINGESCHRAENKT"
+    if n>=gesamt: return "10A050","VOLLSTÄNDIG"
     return "10A050","AUSREICHEND"
 
 
@@ -326,7 +327,7 @@ class StaerkemeldungDashboardExport:
             r2=p.add_run(val); r2.bold=False; r2.font.size=Pt(13); r2.font.color.rgb=_rgb("000000")
             r2.font.name="Aptos"
         _trenn(lc,AZ,oben=True)
-        fc_hex,lbl_bul=_bul_farben(self._bul_aktiv)
+        fc_hex,lbl_bul=_bul_farben(self._bul_aktiv, self.BULMOR_GESAMT)
         _para(lc,"BULMOR - FAHRZEUGSTATUS",bold=True,size=8.5,fg="000000",align="center",sb=1)
         ges=lc.add_paragraph(); ges.alignment=WD_ALIGN_PARAGRAPH.CENTER
         ges.paragraph_format.space_before=Pt(4); ges.paragraph_format.space_after=Pt(0)
