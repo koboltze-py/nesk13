@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (
     QDateEdit, QTextEdit, QScrollArea, QSizePolicy, QMessageBox,
     QTabWidget, QTableWidget, QTableWidgetItem, QHeaderView,
     QSplitter, QGroupBox, QCheckBox, QProgressDialog, QInputDialog,
+    QMenu, QListWidget, QListWidgetItem,
 )
 from PySide6.QtCore import Qt, QDate, QSize, Signal
 from PySide6.QtGui import QFont, QColor, QPainter, QPen, QBrush, QCursor
@@ -268,53 +269,344 @@ class _MonatsKalender(QWidget):
                     zelle.setze_datum(d, eintraege, False)
 
 
+# ─── Kleine Hilfsdialoge für das Schulung-Kontextmenü ────────────────────────
+class _InformiertDatumDialog(QDialog):
+    """Kleiner Dialog: Datum setzen, an dem der Mitarbeiter informiert wurde."""
+
+    def __init__(self, aktuelles_datum: str = "", parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("✅ Mitarbeiter informiert")
+        self.setMinimumWidth(360)
+        v = QVBoxLayout(self)
+        v.setSpacing(10)
+        v.setContentsMargins(16, 14, 16, 14)
+
+        titel = QLabel("✅  Datum setzen: Mitarbeiter informiert")
+        titel.setFont(QFont("Arial", 12, QFont.Weight.Bold))
+        titel.setStyleSheet(f"color:{FIORI_BLUE};")
+        v.addWidget(titel)
+
+        info = QLabel("An welchem Datum wurde der Mitarbeiter über den Ablauf informiert?")
+        info.setWordWrap(True)
+        info.setStyleSheet("color:#555;font-size:11px;")
+        v.addWidget(info)
+
+        self._date = QDateEdit()
+        self._date.setCalendarPopup(True)
+        self._date.setDisplayFormat("dd.MM.yyyy")
+        gesetzt = False
+        if aktuelles_datum:
+            parts = str(aktuelles_datum).strip().split(".")
+            if len(parts) == 3:
+                try:
+                    self._date.setDate(QDate(int(parts[2]), int(parts[1]), int(parts[0])))
+                    gesetzt = True
+                except Exception:
+                    pass
+        if not gesetzt:
+            self._date.setDate(QDate.currentDate())
+        v.addWidget(self._date)
+
+        btn_row = QHBoxLayout()
+        btn_row.setSpacing(8)
+        btn_ok = _btn("💾  Speichern", "#2e7d32", "#1b5e20")
+        btn_ok.clicked.connect(self.accept)
+        btn_cancel = _btn("Abbrechen", "#546e7a", "#455a64")
+        btn_cancel.clicked.connect(self.reject)
+        btn_row.addStretch()
+        btn_row.addWidget(btn_ok)
+        btn_row.addWidget(btn_cancel)
+        v.addLayout(btn_row)
+
+    def get_datum(self) -> str:
+        return self._date.date().toString("dd.MM.yyyy")
+
+
+_DOKUMENT_VORLAGEN = [
+    "Ausweiskopie (Personalausweis/Reisepass)",
+    "Wohnortmeldebescheinigung",
+    "Arbeitgebernachweis / Arbeitszeugnis",
+    "Lohnabrechnung",
+    "Sonstiges",
+]
+
+
+class _FehlendesDokumentDialog(QDialog):
+    """Kleiner Dialog: fehlendes Dokument für einen Mitarbeiter anlegen."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("📄 Fehlendes Dokument anlegen")
+        self.setMinimumWidth(400)
+        v = QVBoxLayout(self)
+        v.setSpacing(10)
+        v.setContentsMargins(16, 14, 16, 14)
+
+        titel = QLabel("📄  Fehlendes Dokument anlegen")
+        titel.setFont(QFont("Arial", 12, QFont.Weight.Bold))
+        titel.setStyleSheet(f"color:{FIORI_BLUE};")
+        v.addWidget(titel)
+
+        info = QLabel("Welches Dokument fehlt noch von diesem Mitarbeiter?")
+        info.setWordWrap(True)
+        info.setStyleSheet("color:#555;font-size:11px;")
+        v.addWidget(info)
+
+        self._combo = QComboBox()
+        self._combo.setEditable(True)
+        self._combo.addItems(_DOKUMENT_VORLAGEN)
+        self._combo.setCurrentIndex(-1)
+        self._combo.setEditText("")
+        v.addWidget(self._combo)
+
+        btn_row = QHBoxLayout()
+        btn_row.setSpacing(8)
+        btn_ok = _btn("💾  Anlegen", "#2e7d32", "#1b5e20")
+        btn_ok.clicked.connect(self._pruefen)
+        btn_cancel = _btn("Abbrechen", "#546e7a", "#455a64")
+        btn_cancel.clicked.connect(self.reject)
+        btn_row.addStretch()
+        btn_row.addWidget(btn_ok)
+        btn_row.addWidget(btn_cancel)
+        v.addLayout(btn_row)
+
+    def _pruefen(self):
+        if not self._combo.currentText().strip():
+            QMessageBox.warning(self, "Pflichtfeld", "Bitte ein Dokument angeben.")
+            return
+        self.accept()
+
+    def get_dokument(self) -> str:
+        return self._combo.currentText().strip()
+
+
+# ─── Geteilte Kontextmenü-Logik für Schulungseinträge ────────────────────────
+def _schulung_email_erstellen(parent, e: dict) -> bool:
+    """Fragt Neuantrag/Verlängerung ab und erstellt zwei E-Mail-Entwürfe."""
+    box = QMessageBox(parent)
+    box.setWindowTitle("Neuantrag oder Verlängerung?")
+    box.setIcon(QMessageBox.Icon.Question)
+    box.setText(
+        "Handelt es sich bei der ZÜP um einen Neuantrag oder eine Verlängerung?"
+    )
+    btn_neu  = box.addButton("Neuantrag", QMessageBox.ButtonRole.YesRole)
+    btn_verl = box.addButton("Verlängerung", QMessageBox.ButtonRole.NoRole)
+    box.addButton("Abbrechen", QMessageBox.ButtonRole.RejectRole)
+    box.exec()
+    clicked = box.clickedButton()
+    if clicked is btn_neu:
+        antragsart = "Neuantrag"
+    elif clicked is btn_verl:
+        antragsart = "Verlaengerung"
+    else:
+        return False
+
+    ma = {
+        "id":       e.get("mitarbeiter_id"),
+        "nachname": e.get("nachname", ""),
+        "vorname":  e.get("vorname", ""),
+    }
+    from functions.schulungen_email import sende_schulung_ablauf_email
+    erfolg, meldung = sende_schulung_ablauf_email(
+        ma, e.get("schulungstyp", ""), e, antragsart,
+        informiert_am=e.get("informiert_am") or None,
+    )
+    if erfolg:
+        QMessageBox.information(parent, "E-Mail erstellt", meldung)
+    else:
+        QMessageBox.warning(parent, "Hinweis", meldung)
+    return False
+
+
+def _schulung_informiert_setzen(parent, e: dict) -> bool:
+    dlg = _InformiertDatumDialog(e.get("informiert_am", "") or "", parent)
+    if dlg.exec() != QDialog.DialogCode.Accepted:
+        return False
+    datum = dlg.get_datum()
+    eintrag_id = e.get("id")
+    if not eintrag_id:
+        QMessageBox.warning(parent, "Hinweis", "Für diesen Eintrag ist keine gültige ID vorhanden.")
+        return False
+    from functions.schulungen_db import setze_informiert
+    try:
+        setze_informiert(eintrag_id, datum)
+    except Exception as exc:
+        QMessageBox.critical(parent, "Fehler", str(exc))
+        return False
+    e["informiert"]    = 1
+    e["informiert_am"] = datum
+    return True
+
+
+def _schulung_dokument_anlegen(parent, e: dict) -> bool:
+    dlg = _FehlendesDokumentDialog(parent)
+    if dlg.exec() != QDialog.DialogCode.Accepted:
+        return False
+    dokument = dlg.get_dokument()
+    ma_id = e.get("mitarbeiter_id")
+    if not ma_id or not dokument:
+        return False
+    from functions.schulungen_db import speichere_fehlendes_dokument
+    try:
+        speichere_fehlendes_dokument(ma_id, e.get("schulungstyp"), dokument)
+    except Exception as exc:
+        QMessageBox.critical(parent, "Fehler", str(exc))
+        return False
+    return True
+
+
+def _zeige_schulung_kontextmenu(parent, e: dict, zusatz_aktionen: list | None = None) -> bool:
+    """
+    Zeigt das Kontextmenü für einen Schulungseintrag (E-Mail erstellen,
+    Informiert-Datum setzen, fehlendes Dokument anlegen).
+    zusatz_aktionen: optionale Liste [(label, callback), ...] für weitere Einträge.
+    Gibt True zurück, wenn sich Daten in `e` geändert haben (Neurendern nötig).
+    """
+    menu = QMenu(parent)
+    akt_email    = menu.addAction("📧  E-Mail erstellen (Mitarbeiter + Herr Peters)")
+    akt_inform   = menu.addAction("✅  Datum setzen: Mitarbeiter informiert")
+    akt_dokument = menu.addAction("📄  Fehlendes Dokument anlegen")
+    extra_actions = {}
+    if zusatz_aktionen:
+        menu.addSeparator()
+        for label, _cb in zusatz_aktionen:
+            extra_actions[menu.addAction(label)] = _cb
+    aktion = menu.exec(QCursor.pos())
+    if aktion is akt_email:
+        return _schulung_email_erstellen(parent, e)
+    elif aktion is akt_inform:
+        return _schulung_informiert_setzen(parent, e)
+    elif aktion is akt_dokument:
+        return _schulung_dokument_anlegen(parent, e)
+    elif aktion in extra_actions:
+        extra_actions[aktion]()
+    return False
+
+
 # ─── Tages-Detail-Dialog ──────────────────────────────────────────────────────
 class _TagesDetailDialog(QDialog):
     def __init__(self, d: date, eintraege: list, parent=None):
         super().__init__(parent)
+        self._datum      = d
+        self._eintraege  = list(eintraege)
         self.setWindowTitle(f"📅 {d.strftime('%d. %B %Y')} – Ablaufende Schulungen")
-        self.resize(560, 380)
+        self.setMinimumSize(1000, 600)
+        self.resize(1080, 660)
         v = QVBoxLayout(self)
         v.setSpacing(10)
 
         titel = QLabel(f"Ablaufende Schulungen am {d.strftime('%d.%m.%Y')}:")
-        titel.setFont(QFont("Arial", 12, QFont.Weight.Bold))
+        titel.setFont(QFont("Arial", 13, QFont.Weight.Bold))
         v.addWidget(titel)
 
-        tbl = QTableWidget()
-        tbl.setColumnCount(4)
-        tbl.setHorizontalHeaderLabels(["Mitarbeiter", "Schulungsart", "Gültig bis", "Status"])
-        tbl.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
-        tbl.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
-        tbl.setAlternatingRowColors(True)
-        hh = tbl.horizontalHeader()
+        hinweis = QLabel(
+            "💡 Doppelklick auf einen Mitarbeiter öffnet ein Kontextmenü: "
+            "E-Mail erstellen, Informiert-Datum setzen, fehlendes Dokument anlegen "
+            "oder alle Schulungen anzeigen."
+        )
+        hinweis.setWordWrap(True)
+        hinweis.setStyleSheet("color:#666;font-size:11px;font-style:italic;")
+        v.addWidget(hinweis)
+
+        self._tbl = QTableWidget()
+        self._tbl.setColumnCount(6)
+        self._tbl.setHorizontalHeaderLabels(
+            ["Mitarbeiter", "Schulungsart", "Gültig bis", "Status", "Informiert", "Fehl. Dokumente"]
+        )
+        self._tbl.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self._tbl.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self._tbl.setAlternatingRowColors(True)
+        hh = self._tbl.horizontalHeader()
         hh.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         hh.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
         hh.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
         hh.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
-        tbl.verticalHeader().setVisible(False)
-        tbl.setRowCount(len(eintraege))
+        hh.setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
+        hh.setSectionResizeMode(5, QHeaderView.ResizeMode.ResizeToContents)
+        self._tbl.verticalHeader().setVisible(False)
+        self._tbl.setStyleSheet("font-size:12px;")
+        self._tbl.doubleClicked.connect(lambda idx: self._kontext_menu_zeile(idx.row()))
+        v.addWidget(self._tbl, 1)
 
-        for row, e in enumerate(eintraege):
-            dring = e.get("_dringlichkeit", "")
-            bg, _ = _chip_farbe(dring)
-            cfg_an = SCHULUNGSTYPEN_CFG_K.get(e.get("schulungstyp",""), {}).get("anzeige", e.get("schulungstyp",""))
-            daten = [
-                e.get("_name", ""),
-                cfg_an,
-                e.get("gueltig_bis", ""),
-                e.get("status", ""),
-            ]
-            pastel = _ZELL_BG.get(dring, "#ffffff")
-            for col, text in enumerate(daten):
-                item = QTableWidgetItem(text)
-                item.setBackground(QColor(pastel))
-                tbl.setItem(row, col, item)
-        v.addWidget(tbl)
+        self._befuellen()
 
         btn = _btn("Schließen", "#546e7a", "#455a64")
         btn.clicked.connect(self.accept)
         v.addWidget(btn, alignment=Qt.AlignmentFlag.AlignRight)
+
+    def _offene_dokumente_map(self) -> dict:
+        from functions.schulungen_db import lade_alle_offenen_dokumente
+        try:
+            return lade_alle_offenen_dokumente()
+        except Exception:
+            return {}
+
+    def _befuellen(self):
+        offene = self._offene_dokumente_map()
+        self._tbl.setRowCount(len(self._eintraege))
+        for row, e in enumerate(self._eintraege):
+            self._render_row(row, e, offene.get(e.get("mitarbeiter_id"), []))
+
+    def _render_row(self, row: int, e: dict, offene_dok: list):
+        dring  = e.get("_dringlichkeit", "")
+        pastel = _ZELL_BG.get(dring, "#ffffff")
+        cfg_an = SCHULUNGSTYPEN_CFG_K.get(e.get("schulungstyp", ""), {}).get(
+            "anzeige", e.get("schulungstyp", "")
+        )
+
+        informiert = bool(e.get("informiert"))
+        inf_am     = e.get("informiert_am", "") or ""
+        inf_text   = f"✓ {inf_am}" if informiert and inf_am else ("✓ informiert" if informiert else "—")
+
+        anz_dok  = len(offene_dok)
+        dok_text = f"⚠ {anz_dok} offen" if anz_dok else "—"
+
+        name = e.get("_name", "") or f"{e.get('nachname','')} {e.get('vorname','')}".strip()
+        werte = [name, cfg_an, e.get("gueltig_bis", ""), e.get("status", ""), inf_text, dok_text]
+
+        for col, text in enumerate(werte):
+            item = QTableWidgetItem(text)
+            item.setBackground(QColor(pastel))
+            if col == 4 and informiert:
+                item.setForeground(QColor("#1b5e20"))
+                f = item.font(); f.setBold(True); item.setFont(f)
+            if col == 5 and anz_dok:
+                item.setForeground(QColor("#b71c1c"))
+                f = item.font(); f.setBold(True); item.setFont(f)
+            item.setData(Qt.ItemDataRole.UserRole, e)
+            self._tbl.setItem(row, col, item)
+
+    def _render_row_refresh(self, row: int, e: dict):
+        from functions.schulungen_db import lade_fehlende_dokumente
+        try:
+            offene = lade_fehlende_dokumente(e.get("mitarbeiter_id"))
+        except Exception:
+            offene = []
+        self._render_row(row, e, offene)
+
+    def _kontext_menu_zeile(self, row: int):
+        if row < 0 or row >= len(self._eintraege):
+            return
+        e = self._eintraege[row]
+        _zeige_schulung_kontextmenu(
+            self, e,
+            zusatz_aktionen=[
+                ("🎓  Alle Schulungen des Mitarbeiters anzeigen",
+                 lambda: self._alle_schulungen_anzeigen(e)),
+            ],
+        )
+        self._render_row_refresh(row, e)
+
+    def _alle_schulungen_anzeigen(self, e: dict):
+        ma = {
+            "id":            e.get("mitarbeiter_id"),
+            "nachname":      e.get("nachname", ""),
+            "vorname":       e.get("vorname", ""),
+            "qualifikation": e.get("qualifikation", ""),
+        }
+        dlg = _MitarbeiterDetailDialog(ma, self)
+        dlg.exec()
+
 
 
 # ─── Neuer-Mitarbeiter-Dialog ─────────────────────────────────────────────────
@@ -571,6 +863,8 @@ def _lade_typen():
             "Personalausweis":     "PA/Pass",
             "Sicherheitsschulung": "Sich.Sch.",
             "Vorfeldschulung":      "Vorfeld",
+            "PRM_Schulung":        "PRM",
+            "FKB_Ausweis":         "FKB-Ausw.",
             "Sonstiges":           "Sonst.",
         }
     except Exception:
@@ -1207,7 +1501,7 @@ class _MitarbeiterDetailDialog(QDialog):
         self._ma = ma
         name = f"{ma.get('nachname', '')} {ma.get('vorname', '')}".strip()
         self.setWindowTitle(f"🎓 Schulungen: {name}")
-        self.resize(720, 520)
+        self.resize(760, 660)
         self._build_ui()
 
     def _build_ui(self):
@@ -1274,6 +1568,31 @@ class _MitarbeiterDetailDialog(QDialog):
         leg_lay.addWidget(no_lbl)
         leg_lay.addStretch()
         v.addLayout(leg_lay)
+
+        # ── Fehlende Dokumente ─────────────────────────────────────────────
+        dok_box = QGroupBox("📄  Fehlende Dokumente")
+        dok_box.setStyleSheet(
+            "QGroupBox{font-weight:bold;color:#b71c1c;border:1px solid #ef9a9a;"
+            "border-radius:4px;margin-top:6px;padding-top:8px;}"
+            "QGroupBox::title{subcontrol-origin:margin;left:8px;padding:0 4px;}"
+        )
+        dok_v = QVBoxLayout(dok_box)
+        self._dok_list = QListWidget()
+        self._dok_list.setMaximumHeight(90)
+        self._dok_list.setStyleSheet("font-size:11px;")
+        dok_v.addWidget(self._dok_list)
+        dok_btn_row = QHBoxLayout()
+        dok_btn_row.setSpacing(8)
+        btn_dok_neu = _btn_flat("➕  Dokument anlegen")
+        btn_dok_neu.clicked.connect(self._dokument_anlegen)
+        btn_dok_erledigt = _btn_flat("✔  Als erledigt markieren")
+        btn_dok_erledigt.clicked.connect(self._dokument_erledigt)
+        dok_btn_row.addWidget(btn_dok_neu)
+        dok_btn_row.addWidget(btn_dok_erledigt)
+        dok_btn_row.addStretch()
+        dok_v.addLayout(dok_btn_row)
+        v.addWidget(dok_box)
+        self._dokumente_laden()
 
         btn_row = QHBoxLayout()
         btn_row.setSpacing(8)
@@ -1421,18 +1740,73 @@ class _MitarbeiterDetailDialog(QDialog):
             self._tabelle_befuellen()   # Tabelle sofort refreshen
             self.geaendert.emit()       # Signal nach oben weiterleiten
 
+    # ── Fehlende Dokumente ─────────────────────────────────────────────────
+    def _dokumente_laden(self):
+        from functions.schulungen_db import lade_fehlende_dokumente, SCHULUNGSTYPEN_CFG
+        self._dok_list.clear()
+        try:
+            dokumente = lade_fehlende_dokumente(self._ma["id"])
+        except Exception:
+            dokumente = []
+        if not dokumente:
+            item = QListWidgetItem("— Keine offenen fehlenden Dokumente —")
+            item.setForeground(QColor("#9e9e9e"))
+            self._dok_list.addItem(item)
+            return
+        for d in dokumente:
+            typ_anzeige = SCHULUNGSTYPEN_CFG.get(d.get("schulungstyp", "") or "", {}).get("anzeige", "")
+            zusatz = f" ({typ_anzeige})" if typ_anzeige else ""
+            item = QListWidgetItem(f"⚠ {d.get('dokument', '')}{zusatz} – angelegt {d.get('angelegt_am', '')}")
+            item.setData(Qt.ItemDataRole.UserRole, d)
+            self._dok_list.addItem(item)
+
+    def _dokument_anlegen(self):
+        dlg = _FehlendesDokumentDialog(self)
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+        dokument = dlg.get_dokument()
+        if not dokument:
+            return
+        from functions.schulungen_db import speichere_fehlendes_dokument
+        try:
+            speichere_fehlendes_dokument(self._ma["id"], None, dokument)
+        except Exception as exc:
+            QMessageBox.critical(self, "Fehler", str(exc))
+            return
+        self._dokumente_laden()
+        self.geaendert.emit()
+
+    def _dokument_erledigt(self):
+        item = self._dok_list.currentItem()
+        if not item:
+            QMessageBox.information(self, "Hinweis", "Bitte zuerst ein Dokument in der Liste auswählen.")
+            return
+        d = item.data(Qt.ItemDataRole.UserRole)
+        if not d:
+            return
+        from functions.schulungen_db import dokument_erledigt_setzen
+        try:
+            dokument_erledigt_setzen(d["id"], True)
+        except Exception as exc:
+            QMessageBox.critical(self, "Fehler", str(exc))
+            return
+        self._dokumente_laden()
+        self.geaendert.emit()
+
 
 # ─── Mitarbeiter-Liste (durchsuchbar) ─────────────────────────────────────────
 class _MitarbeiterListeWidget(QWidget):
     """Durchsuchbare, filterbare Liste aller Mitarbeiter mit Schulungsstatus.
-    Doppelklick auf eine Zeile öffnet den Detaildialog mit allen 14 Schulungstypen.
+    Doppelklick auf eine Zeile öffnet den Detaildialog mit allen Schulungstypen.
     """
 
     # Schlüsseltypen für die Matrix-Spalten
+    # EH und Refresher werden hier bewusst NICHT angezeigt (nur nach Anklicken/
+    # Filterauswahl bzw. im Mitarbeiter-Detaildialog) – "Ablauf FKB Ausweis"
+    # ist stattdessen prominent in der Matrix vertreten.
     _MATRIX = [
-        ("EH",                 "EH"),
-        ("Refresher",          "Ref."),
         ("ZÜP",                "ZÜP"),
+        ("FKB_Ausweis",        "FKB Ausw."),
         ("Vorfeldschulung",    "Vorfeld"),
         ("Sicherheitsschulung","Sich.Sch."),
         ("PRM_Schulung",       "PRM-Sch."),
@@ -1520,7 +1894,7 @@ class _MitarbeiterListeWidget(QWidget):
         self._tbl.customContextMenuRequested.connect(self._kontext_menu)
         v.addWidget(self._tbl, 1)
 
-        hint = QLabel("💡 Doppelklick auf einen Mitarbeiter → alle 14 Schulungstypen anzeigen")
+        hint = QLabel("💡 Doppelklick auf einen Mitarbeiter → alle Schulungstypen anzeigen")
         hint.setStyleSheet("color:#777;font-size:10px;font-style:italic;padding:2px 0;")
         v.addWidget(hint)
 
@@ -1625,12 +1999,21 @@ class _MitarbeiterListeWidget(QWidget):
 
         for row, ma in enumerate(daten):
             schulungen = ma.get("schulungen", {})
+            fehl_dok   = ma.get("fehlende_dokumente") or []
             name  = f"{ma.get('nachname', '')}, {ma.get('vorname', '')}".strip(", ")
+            if fehl_dok:
+                name += f"   📄 {len(fehl_dok)}"
             qual  = ma.get("qualifikation", "") or ""
             kein  = not schulungen  # Mitarbeiter ohne jegliche Einträge
 
             name_item = QTableWidgetItem(name)
             name_item.setData(Qt.ItemDataRole.UserRole, ma)
+            if fehl_dok:
+                tooltip = "Fehlende Dokumente:\n" + "\n".join(
+                    f"• {d.get('dokument', '')}" for d in fehl_dok
+                )
+                name_item.setToolTip(tooltip)
+                name_item.setForeground(QColor("#b71c1c"))
             qual_item = QTableWidgetItem(qual)
 
             if kein:
@@ -1646,13 +2029,25 @@ class _MitarbeiterListeWidget(QWidget):
                 if eintrag:
                     dring = eintrag.get("_dringlichkeit", "")
                     bg    = self._FARB_MAP.get(dring, "#ffffff")
+                    gb_text = eintrag.get("gueltig_bis", "—") or "—"
+                    informiert_tt = None
+                    if eintrag.get("informiert"):
+                        gb_text += "  ✓"
+                        inf_am = eintrag.get("informiert_am", "")
+                        informiert_tt = (
+                            f"Mitarbeiter informiert am {inf_am}" if inf_am
+                            else "Mitarbeiter informiert"
+                        )
                     for col, text in enumerate([
                         SCHULUNGSTYPEN_CFG_K.get(typ_key, {}).get("anzeige", typ_key),
-                        eintrag.get("gueltig_bis", "—") or "—",
+                        gb_text,
                         eintrag.get("status", "—") or "—",
                     ], start=2):
                         it = QTableWidgetItem(text)
                         it.setBackground(QColor(bg))
+                        if col == 3 and informiert_tt:
+                            it.setForeground(QColor("#1b5e20"))
+                            it.setToolTip(informiert_tt)
                         self._tbl.setItem(row, col, it)
                 else:
                     for col, text in enumerate(["—", "—", "—"], start=2):
@@ -1665,8 +2060,17 @@ class _MitarbeiterListeWidget(QWidget):
                     if eintrag:
                         dring = eintrag.get("_dringlichkeit", "")
                         bg    = self._FARB_MAP.get(dring, "#ffffff")
-                        it    = QTableWidgetItem(eintrag.get("gueltig_bis", "—") or "—")
+                        text  = eintrag.get("gueltig_bis", "—") or "—"
+                        it    = QTableWidgetItem(text)
                         it.setBackground(QColor(bg))
+                        if eintrag.get("informiert"):
+                            it.setText(text + "  ✓")
+                            it.setForeground(QColor("#1b5e20"))
+                            inf_am = eintrag.get("informiert_am", "")
+                            it.setToolTip(
+                                f"Mitarbeiter informiert am {inf_am}" if inf_am
+                                else "Mitarbeiter informiert"
+                            )
                     else:
                         it = QTableWidgetItem("—")
                         it.setForeground(QColor("#bdbdbd"))

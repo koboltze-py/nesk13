@@ -24,9 +24,10 @@ def _outlook_mail_oeffnen(
     an: str,
     betreff: str,
     text: str,
-    anhang_pfad: str,
+    anhang_pfad: str | None = None,
+    cc: str | None = None,
 ) -> None:
-    """Öffnet eine neue Outlook-Mail mit Empfänger, Betreff, Text und Anhang."""
+    """Öffnet eine neue Outlook-Mail mit Empfänger, Betreff, Text und optionalem Anhang/CC."""
     import win32com.client  # type: ignore
     try:
         outlook = win32com.client.GetActiveObject("Outlook.Application")
@@ -39,6 +40,8 @@ def _outlook_mail_oeffnen(
 
     mail.To      = an
     mail.Subject = betreff
+    if cc:
+        mail.CC = cc
 
     # Text als HTML + gespeicherte Signatur dahinter
     zeilen_html = "".join(
@@ -52,8 +55,9 @@ def _outlook_mail_oeffnen(
     )
     mail.HTMLBody = body_html + (signatur or "")
 
-    # Anhang zuletzt hinzufügen (nach dem Body-Setzen)
-    mail.Attachments.Add(anhang_pfad)
+    # Anhang zuletzt hinzufügen (nach dem Body-Setzen), falls vorhanden
+    if anhang_pfad:
+        mail.Attachments.Add(anhang_pfad)
 
 def _email_text(absender: str, datum: str) -> str:
     linie = "─" * 42

@@ -42,6 +42,7 @@ SCHULUNGSTYPEN_CFG = {
     "Sicherheitsschulung":    {"anzeige": "Sicherheitsschulung",   "ablauf": "intervall", "intervall": 5,    "laeuft_nicht_ab": False},
     "Vorfeldschulung":         {"anzeige": "Vorfeldschulung",        "ablauf": "direkt",    "intervall": None, "laeuft_nicht_ab": False},
     "PRM_Schulung":           {"anzeige": "PRM-Schulung",           "ablauf": "direkt",    "intervall": None, "laeuft_nicht_ab": False},
+    "FKB_Ausweis":            {"anzeige": "Ablauf FKB Ausweis",     "ablauf": "direkt",    "intervall": None, "laeuft_nicht_ab": False},
     "Sonstiges":              {"anzeige": "Sonstiges",              "ablauf": "direkt",    "intervall": None, "laeuft_nicht_ab": False},
 }
 
@@ -128,6 +129,17 @@ def _init_db():
                 conn.execute(_col_def)
             except Exception:
                 pass
+        # ── Fehlende Dokumente (pro Mitarbeiter, optional an Schulungstyp geknüpft) ──
+        conn.execute("""
+        CREATE TABLE IF NOT EXISTS fehlende_dokumente (
+            id               INTEGER PRIMARY KEY AUTOINCREMENT,
+            mitarbeiter_id   INTEGER NOT NULL REFERENCES mitarbeiter(id) ON DELETE CASCADE,
+            schulungstyp     TEXT,
+            dokument         TEXT NOT NULL,
+            angelegt_am      TEXT NOT NULL,
+            erledigt         INTEGER DEFAULT 0,
+            erledigt_am      TEXT
+        )""")
         conn.commit()
 
 
@@ -345,6 +357,77 @@ def lade_schulungseintraege(ma_id: int) -> list[dict]:
             (ma_id,)
         ).fetchall()
     return [dict(r) for r in rows]
+
+
+def setze_informiert(eintrag_id: int, informiert_am: str) -> None:
+    """Setzt informiert=1 + informiert_am für einen bestehenden Schulungseintrag."""
+    _init_db()
+    with _connect() as conn:
+        conn.execute(
+            "UPDATE schulungseintraege SET informiert=1, informiert_am=? WHERE id=?",
+            (informiert_am, eintrag_id),
+        )
+        conn.commit()
+
+
+# ─── Fehlende Dokumente ────────────────────────────────────────────────────────
+def speichere_fehlendes_dokument(ma_id: int, schulungstyp: str | None, dokument: str) -> int:
+    _init_db()
+    now = datetime.now().strftime("%d.%m.%Y")
+    with _connect() as conn:
+        cur = conn.execute(
+            """INSERT INTO fehlende_dokumente
+               (mitarbeiter_id, schulungstyp, dokument, angelegt_am, erledigt)
+               VALUES (?,?,?,?,0)""",
+            (ma_id, schulungstyp or "", dokument, now),
+        )
+        conn.commit()
+        return cur.lastrowid
+
+
+def lade_fehlende_dokumente(ma_id: int, nur_offene: bool = True) -> list[dict]:
+    _init_db()
+    sql = "SELECT * FROM fehlende_dokumente WHERE mitarbeiter_id=?"
+    if nur_offene:
+        sql += " AND erledigt=0"
+    sql += " ORDER BY angelegt_am DESC"
+    with _connect() as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(sql, (ma_id,)).fetchall()
+    return [dict(r) for r in rows]
+
+
+def lade_alle_offenen_dokumente() -> dict[int, list[dict]]:
+    """Gibt {mitarbeiter_id: [dokument_dict, ...]} für alle offenen (nicht erledigten) Dokumente zurück."""
+    _init_db()
+    with _connect() as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            "SELECT * FROM fehlende_dokumente WHERE erledigt=0 ORDER BY angelegt_am DESC"
+        ).fetchall()
+    result: dict[int, list[dict]] = {}
+    for r in rows:
+        d = dict(r)
+        result.setdefault(d["mitarbeiter_id"], []).append(d)
+    return result
+
+
+def dokument_erledigt_setzen(dokument_id: int, erledigt: bool = True) -> None:
+    _init_db()
+    erledigt_am = datetime.now().strftime("%d.%m.%Y") if erledigt else None
+    with _connect() as conn:
+        conn.execute(
+            "UPDATE fehlende_dokumente SET erledigt=?, erledigt_am=? WHERE id=?",
+            (int(erledigt), erledigt_am, dokument_id),
+        )
+        conn.commit()
+
+
+def loesche_fehlendes_dokument(dokument_id: int) -> None:
+    _init_db()
+    with _connect() as conn:
+        conn.execute("DELETE FROM fehlende_dokumente WHERE id=?", (dokument_id,))
+        conn.commit()
 
 
 # ─── Kalender-Abfragen ────────────────────────────────────────────────────────
@@ -576,10 +659,13 @@ def lade_mitarbeiter_mit_schulungen() -> list[dict]:
         d["_dringlichkeit"] = _dringlichkeit(gb, cfg.get("laeuft_nicht_ab", True)) if gb else ""
         eintraege_by_ma.setdefault(ma_id, {})[typ] = d
 
+    offene_dokumente = lade_alle_offenen_dokumente()
+
     result = []
     for m in mitarbeiter:
         md = dict(m)
         md["schulungen"] = eintraege_by_ma.get(m["id"], {})
+        md["fehlende_dokumente"] = offene_dokumente.get(m["id"], [])
         result.append(md)
     return result
 
