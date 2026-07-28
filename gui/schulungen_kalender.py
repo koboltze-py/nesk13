@@ -380,36 +380,196 @@ class _FehlendesDokumentDialog(QDialog):
         return self._combo.currentText().strip()
 
 
+class _SchulungAuswahlDialog(QDialog):
+    """
+    Zeigt vor dem Erstellen einer Ablauf-E-Mail alle Schulungen eines
+    Mitarbeiters mit Ablaufdatum/Status an. Bereits abgelaufene bzw. in
+    <= 3 Monaten ablaufende Schulungen sind vorausgewählt, es können aber
+    auch beliebige andere Schulungen mit in die E-Mail aufgenommen werden.
+    """
+
+    def __init__(self, ma_name: str, schulungen: list[dict],
+                 vorausgewaehlt_typ: str | None = None, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("📧 Schulungen für E-Mail auswählen")
+        self.setMinimumWidth(540)
+        self._checkboxen: list[tuple[QCheckBox, dict]] = []
+
+        v = QVBoxLayout(self)
+        v.setSpacing(10)
+        v.setContentsMargins(16, 14, 16, 14)
+
+        titel = QLabel(f"📧  E-Mail für {ma_name} vorbereiten")
+        titel.setFont(QFont("Arial", 12, QFont.Weight.Bold))
+        titel.setStyleSheet(f"color:{FIORI_BLUE};")
+        v.addWidget(titel)
+
+        info = QLabel(
+            "Folgende Schulungen wurden für diesen Mitarbeiter gefunden. Bereits "
+            "abgelaufene bzw. in ≤ 3 Monaten ablaufende Schulungen sind bereits "
+            "vorausgewählt – es können aber auch beliebige andere Schulungen mit "
+            "in die E-Mail aufgenommen werden."
+        )
+        info.setWordWrap(True)
+        info.setStyleSheet("color:#555;font-size:11px;")
+        v.addWidget(info)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setMaximumHeight(320)
+        inner = QWidget()
+        inner_v = QVBoxLayout(inner)
+        inner_v.setSpacing(4)
+
+        for s in schulungen:
+            tage = s.get("_tage_rest")
+            kritisch = bool(s.get("_kritisch"))
+            gb = s.get("gueltig_bis") or "—"
+            typ = s.get("schulungstyp")
+            anzeige = s.get("_anzeige", typ)
+            if tage is None:
+                status_txt = "läuft nicht ab" if s.get("laeuft_nicht_ab") else "kein Datum"
+            elif tage < 0:
+                status_txt = f"ÜBERFÄLLIG seit {-tage} Tagen"
+            else:
+                status_txt = f"noch {tage} Tage gültig"
+            cb = QCheckBox(f"{anzeige}  –  gültig bis {gb}  ({status_txt})")
+            vorausgewaehlt = kritisch or (vorausgewaehlt_typ is not None and typ == vorausgewaehlt_typ)
+            cb.setChecked(vorausgewaehlt)
+            if kritisch:
+                cb.setStyleSheet("color:#b71c1c;font-weight:bold;")
+            inner_v.addWidget(cb)
+            self._checkboxen.append((cb, s))
+        inner_v.addStretch()
+        scroll.setWidget(inner)
+        v.addWidget(scroll)
+
+        auswahl_row = QHBoxLayout()
+        auswahl_row.setSpacing(8)
+        btn_alle = _btn_flat("Alle auswählen")
+        btn_alle.clicked.connect(lambda: self._alle_setzen(True))
+        btn_keine = _btn_flat("Alle abwählen")
+        btn_keine.clicked.connect(lambda: self._alle_setzen(False))
+        auswahl_row.addWidget(btn_alle)
+        auswahl_row.addWidget(btn_keine)
+        auswahl_row.addStretch()
+        v.addLayout(auswahl_row)
+
+        btn_row = QHBoxLayout()
+        btn_row.setSpacing(8)
+        btn_ok = _btn("Weiter  →", "#2e7d32", "#1b5e20")
+        btn_ok.clicked.connect(self._pruefen)
+        btn_cancel = _btn("Abbrechen", "#546e7a", "#455a64")
+        btn_cancel.clicked.connect(self.reject)
+        btn_row.addStretch()
+        btn_row.addWidget(btn_ok)
+        btn_row.addWidget(btn_cancel)
+        v.addLayout(btn_row)
+
+    def _alle_setzen(self, checked: bool):
+        for cb, _ in self._checkboxen:
+            cb.setChecked(checked)
+
+    def _pruefen(self):
+        if not any(cb.isChecked() for cb, _ in self._checkboxen):
+            QMessageBox.warning(self, "Hinweis", "Bitte mindestens eine Schulung auswählen.")
+            return
+        self.accept()
+
+    def get_ausgewaehlte(self) -> list[dict]:
+        return [s for cb, s in self._checkboxen if cb.isChecked()]
+
+
 # ─── Geteilte Kontextmenü-Logik für Schulungseinträge ────────────────────────
 def _schulung_email_erstellen(parent, e: dict) -> bool:
-    """Fragt Neuantrag/Verlängerung ab und erstellt zwei E-Mail-Entwürfe."""
-    box = QMessageBox(parent)
-    box.setWindowTitle("Neuantrag oder Verlängerung?")
-    box.setIcon(QMessageBox.Icon.Question)
-    box.setText(
-        "Handelt es sich bei der ZÜP um einen Neuantrag oder eine Verlängerung?"
-    )
-    btn_neu  = box.addButton("Neuantrag", QMessageBox.ButtonRole.YesRole)
-    btn_verl = box.addButton("Verlängerung", QMessageBox.ButtonRole.NoRole)
-    box.addButton("Abbrechen", QMessageBox.ButtonRole.RejectRole)
-    box.exec()
-    clicked = box.clickedButton()
-    if clicked is btn_neu:
-        antragsart = "Neuantrag"
-    elif clicked is btn_verl:
-        antragsart = "Verlaengerung"
-    else:
+    """
+    Ermittelt alle Schulungen des Mitarbeiters (nicht nur die angeklickte),
+    lässt per Dialog eine Auswahl treffen (kritische Schulungen sind
+    vorausgewählt, alle anderen bleiben zusätzlich wählbar), fragt
+    Neuantrag/Verlängerung ab und erstellt zwei E-Mail-Entwürfe.
+    """
+    ma_id = e.get("mitarbeiter_id")
+    name  = e.get("_name") or f"{e.get('nachname','')} {e.get('vorname','')}".strip()
+
+    from functions.schulungen_db import lade_alle_schulungen_status
+    try:
+        schulungen = lade_alle_schulungen_status(ma_id) if ma_id else []
+    except Exception as exc:
+        QMessageBox.critical(parent, "Fehler", str(exc))
+        return False
+    if not schulungen:
+        QMessageBox.information(
+            parent, "Hinweis",
+            "Für diesen Mitarbeiter sind keine Schulungseinträge vorhanden."
+        )
         return False
 
+    auswahl_dlg = _SchulungAuswahlDialog(name, schulungen, e.get("schulungstyp"), parent)
+    if auswahl_dlg.exec() != QDialog.DialogCode.Accepted:
+        return False
+    ausgewaehlt = auswahl_dlg.get_ausgewaehlte()
+    if not ausgewaehlt:
+        return False
+
+    # Neuantrag/Verlängerung nur abfragen, wenn ZÜP tatsächlich ausgewählt wurde
+    zuep_betroffen = any(s.get("schulungstyp") == "ZÜP" for s in ausgewaehlt)
+    antragsart = None
+    if zuep_betroffen:
+        box = QMessageBox(parent)
+        box.setWindowTitle("Neuantrag oder Verlängerung?")
+        box.setIcon(QMessageBox.Icon.Question)
+        box.setText(
+            "Handelt es sich bei der ZÜP um einen Neuantrag oder eine Verlängerung?"
+        )
+        btn_neu  = box.addButton("Neuantrag", QMessageBox.ButtonRole.YesRole)
+        btn_verl = box.addButton("Verlängerung", QMessageBox.ButtonRole.NoRole)
+        box.addButton("Abbrechen", QMessageBox.ButtonRole.RejectRole)
+        box.exec()
+        clicked = box.clickedButton()
+        if clicked is btn_neu:
+            antragsart = "Neuantrag"
+        elif clicked is btn_verl:
+            antragsart = "Verlaengerung"
+        else:
+            return False
+
     ma = {
-        "id":       e.get("mitarbeiter_id"),
+        "id":       ma_id,
         "nachname": e.get("nachname", ""),
         "vorname":  e.get("vorname", ""),
     }
-    from functions.schulungen_email import sende_schulung_ablauf_email
+
+    # E-Mail-Adresse prüfen – falls nicht in der Mitarbeiter-Datenbank hinterlegt,
+    # manuelle Eingabe ermöglichen (Vorschlag: Stations-Adresse)
+    from functions.schulungen_email import _mitarbeiter_email, sende_schulung_ablauf_email
+    email_override = None
+    if not _mitarbeiter_email(ma["nachname"], ma["vorname"]):
+        from config import HANDYS_EMAIL_EMPFAENGER as _STATIONS_EMAIL
+        text, ok = QInputDialog.getItem(
+            parent,
+            "E-Mail-Adresse fehlt",
+            f"Für {name} ist keine E-Mail-Adresse in der Mitarbeiter-Datenbank "
+            f"hinterlegt.\nBitte E-Mail-Adresse eingeben oder auswählen:",
+            [_STATIONS_EMAIL, ""],
+            0,
+            True,
+        )
+        if not ok or not text.strip():
+            return False
+        email_override = text.strip()
+
+    from functions.schulungen_db import lade_fehlende_dokumente
+    try:
+        fehlende = lade_fehlende_dokumente(ma_id) if ma_id else []
+    except Exception:
+        fehlende = []
+    dok_namen = [d.get("dokument", "") for d in fehlende if d.get("dokument")]
+
     erfolg, meldung = sende_schulung_ablauf_email(
-        ma, e.get("schulungstyp", ""), e, antragsart,
+        ma, ausgewaehlt, antragsart,
         informiert_am=e.get("informiert_am") or None,
+        ma_email_override=email_override,
+        fehlende_dokumente=dok_namen,
     )
     if erfolg:
         QMessageBox.information(parent, "E-Mail erstellt", meldung)
@@ -500,7 +660,7 @@ class _TagesDetailDialog(QDialog):
         v.addWidget(titel)
 
         hinweis = QLabel(
-            "💡 Doppelklick auf einen Mitarbeiter öffnet ein Kontextmenü: "
+            "💡 Doppelklick oder Rechtsklick auf einen Mitarbeiter öffnet ein Kontextmenü: "
             "E-Mail erstellen, Informiert-Datum setzen, fehlendes Dokument anlegen "
             "oder alle Schulungen anzeigen."
         )
@@ -526,6 +686,8 @@ class _TagesDetailDialog(QDialog):
         self._tbl.verticalHeader().setVisible(False)
         self._tbl.setStyleSheet("font-size:12px;")
         self._tbl.doubleClicked.connect(lambda idx: self._kontext_menu_zeile(idx.row()))
+        self._tbl.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self._tbl.customContextMenuRequested.connect(self._kontext_menu_bei_pos)
         v.addWidget(self._tbl, 1)
 
         self._befuellen()
@@ -556,7 +718,7 @@ class _TagesDetailDialog(QDialog):
 
         informiert = bool(e.get("informiert"))
         inf_am     = e.get("informiert_am", "") or ""
-        inf_text   = f"✓ {inf_am}" if informiert and inf_am else ("✓ informiert" if informiert else "—")
+        inf_text   = f"Informiert am {inf_am}" if informiert and inf_am else ("Informiert" if informiert else "—")
 
         anz_dok  = len(offene_dok)
         dok_text = f"⚠ {anz_dok} offen" if anz_dok else "—"
@@ -596,6 +758,14 @@ class _TagesDetailDialog(QDialog):
             ],
         )
         self._render_row_refresh(row, e)
+
+    def _kontext_menu_bei_pos(self, pos):
+        """Rechtsklick auf eine Zeile öffnet dasselbe Kontextmenü wie ein Doppelklick."""
+        row = self._tbl.rowAt(pos.y())
+        if row < 0:
+            return
+        self._tbl.selectRow(row)
+        self._kontext_menu_zeile(row)
 
     def _alle_schulungen_anzeigen(self, e: dict):
         ma = {
@@ -1388,7 +1558,7 @@ class _SchulungBearbeitenDialog(QDialog):
         if eintrag and eintrag.get("informiert"):
             self._chk_informiert.setChecked(True)
             self._datum_informiert.setEnabled(True)
-        self._chk_informiert.toggled.connect(self._datum_informiert.setEnabled)
+        self._chk_informiert.toggled.connect(self._on_informiert_toggled)
         form.addRow("Mitarbeiter:", w_info)
 
         v.addLayout(form)
@@ -1407,6 +1577,11 @@ class _SchulungBearbeitenDialog(QDialog):
     def _info_loeschen(self):
         self._chk_informiert.setChecked(False)
         self._datum_informiert.setDate(QDate(2000, 1, 1))
+
+    def _on_informiert_toggled(self, checked: bool):
+        self._datum_informiert.setEnabled(checked)
+        if checked and self._datum_informiert.date() == QDate(2000, 1, 1):
+            self._datum_informiert.setDate(QDate.currentDate())
 
     def _auto_gueltig_bis(self, d: QDate):
         if d == QDate(2000, 1, 1):
@@ -1607,65 +1782,14 @@ class _MitarbeiterDetailDialog(QDialog):
         v.addLayout(btn_row)
 
     def _sende_email(self):
-        import urllib.parse, subprocess, os
-        from functions.schulungen_db import SCHULUNGSTYPEN_CFG
         ma = self._ma
-        email = ""
-        try:
-            from database.connection import get_ma_connection
-            import sqlite3 as _sqlite3
-            conn = get_ma_connection()
-            conn.row_factory = _sqlite3.Row
-            row = conn.execute(
-                "SELECT email FROM mitarbeiter WHERE nachname=? AND vorname=? LIMIT 1",
-                (ma.get("nachname", ""), ma.get("vorname", ""))
-            ).fetchone()
-            conn.close()
-            if row:
-                email = row["email"] or ""
-        except Exception:
-            pass
-        DRING_LABEL = {
-            "abgelaufen": "abgelaufen",
-            "rot":        "läuft in ≤1 Monat ab",
-            "orange":     "läuft in ≤2 Monaten ab",
-            "gelb":       "läuft in ≤3 Monaten ab",
+        e = {
+            "mitarbeiter_id": ma.get("id"),
+            "nachname":       ma.get("nachname", ""),
+            "vorname":        ma.get("vorname", ""),
         }
-        probleme = []
-        for typ, eintrag in ma.get("schulungen", {}).items():
-            dring = eintrag.get("_dringlichkeit", "")
-            if dring in DRING_LABEL:
-                anzeige = SCHULUNGSTYPEN_CFG.get(typ, {}).get("anzeige", typ)
-                gb      = eintrag.get("gueltig_bis", "—") or "—"
-                probleme.append(f"  • {anzeige}: {gb} ({DRING_LABEL[dring]})")
-        if not probleme:
-            QMessageBox.information(
-                self, "Keine Probleme",
-                f"{ma.get('vorname', '')} {ma.get('nachname', '')} hat keine abgelaufenen "
-                f"oder demnächst ablaufenden Schulungen."
-            )
-            return
-        vorname = ma.get("vorname", "")
-        liste   = "\n".join(probleme)
-        betreff = "Schulungsstatus – Handlungsbedarf"
-        text = (
-            f"Hallo {vorname},\n\n"
-            f"bei der Überprüfung deiner Schulungsunterlagen haben wir festgestellt, dass "
-            f"folgende Schulungen abgelaufen sind oder demnächst ablaufen:\n\n"
-            f"{liste}\n\n"
-            f"Bitte kümmere dich zeitnah um die Erneuerung.\n\n"
-            f"Bei Fragen stehen wir gerne zur Verfügung.\n\n"
-            f"Viele Grüße\nDRK Erste-Hilfe-Station FKB"
-        )
-        mailto = (
-            f"mailto:{urllib.parse.quote(email)}"
-            f"?subject={urllib.parse.quote(betreff)}"
-            f"&body={urllib.parse.quote(text)}"
-        )
-        try:
-            subprocess.Popen(["outlook", "/c", "ipm.note", "/m", mailto])
-        except FileNotFoundError:
-            os.startfile(mailto)
+        _schulung_email_erstellen(self, e)
+        self._tabelle_befuellen()
 
     def _tabelle_befuellen(self):
         from functions.schulungen_db import SCHULUNGSTYPEN_CFG, lade_mitarbeiter_mit_schulungen
@@ -1692,7 +1816,7 @@ class _MitarbeiterDetailDialog(QDialog):
                 # Informiert-Anzeige
                 if eintrag.get("informiert"):
                     inf_am = eintrag.get("informiert_am", "") or ""
-                    inf_txt = f"✓ {inf_am}" if inf_am else "✓"
+                    inf_txt = f"Informiert am {inf_am}" if inf_am else "Informiert"
                 else:
                     inf_txt = ""
                 items = [
@@ -1887,6 +2011,7 @@ class _MitarbeiterListeWidget(QWidget):
         self._tbl.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self._tbl.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self._tbl.setAlternatingRowColors(True)
+        self._tbl.setWordWrap(True)
         self._tbl.verticalHeader().setVisible(False)
         self._tbl.setStyleSheet("font-size:12px;")
         self._tbl.doubleClicked.connect(lambda idx: self._zeige_detail(idx.row()))
@@ -2032,8 +2157,8 @@ class _MitarbeiterListeWidget(QWidget):
                     gb_text = eintrag.get("gueltig_bis", "—") or "—"
                     informiert_tt = None
                     if eintrag.get("informiert"):
-                        gb_text += "  ✓"
                         inf_am = eintrag.get("informiert_am", "")
+                        gb_text += f"\u2028Informiert am {inf_am}" if inf_am else "\u2028Informiert"
                         informiert_tt = (
                             f"Mitarbeiter informiert am {inf_am}" if inf_am
                             else "Mitarbeiter informiert"
@@ -2061,10 +2186,12 @@ class _MitarbeiterListeWidget(QWidget):
                         dring = eintrag.get("_dringlichkeit", "")
                         bg    = self._FARB_MAP.get(dring, "#ffffff")
                         text  = eintrag.get("gueltig_bis", "—") or "—"
-                        it    = QTableWidgetItem(text)
+                        if eintrag.get("informiert"):
+                            inf_am = eintrag.get("informiert_am", "")
+                            text += f"\u2028Informiert am {inf_am}" if inf_am else "\u2028Informiert"
+                        it = QTableWidgetItem(text)
                         it.setBackground(QColor(bg))
                         if eintrag.get("informiert"):
-                            it.setText(text + "  ✓")
                             it.setForeground(QColor("#1b5e20"))
                             inf_am = eintrag.get("informiert_am", "")
                             it.setToolTip(
@@ -2088,6 +2215,22 @@ class _MitarbeiterListeWidget(QWidget):
             btn_mail.clicked.connect(lambda _=False, m=ma: self._sende_email(m))
             self._tbl.setCellWidget(row, mail_col, btn_mail)
 
+        self._tbl.resizeRowsToContents()
+        # Bei Zellen mit "Informiert am …" (2. Zeile via \u2028) reicht die von
+        # resizeRowsToContents() ermittelte Höhe bei schmalen (Stretch-)Spalten
+        # manchmal nicht aus (Qt-Sizehint-Problem bei Zeilenumbruch) → hier
+        # explizit eine Mindesthöhe für zweizeilige Zellen erzwingen.
+        zeilen_hoehe = self._tbl.fontMetrics().height() * 2 + 12
+        for r in range(self._tbl.rowCount()):
+            mehrzeilig = False
+            for c in range(2, len(cols) - 1):
+                it = self._tbl.item(r, c)
+                if it and "\u2028" in it.text():
+                    mehrzeilig = True
+                    break
+            if mehrzeilig and self._tbl.rowHeight(r) < zeilen_hoehe:
+                self._tbl.setRowHeight(r, zeilen_hoehe)
+
     def _zeige_detail(self, row: int):
         item = self._tbl.item(row, 0)
         if not item:
@@ -2100,72 +2243,13 @@ class _MitarbeiterListeWidget(QWidget):
         dlg.exec()
 
     def _sende_email(self, ma: dict):
-        import urllib.parse, subprocess
-        from functions.schulungen_db import SCHULUNGSTYPEN_CFG
-
-        # E-Mail-Adresse aus mitarbeiter.db nachschlagen
-        email = ""
-        try:
-            from database.connection import get_ma_connection
-            import sqlite3 as _sqlite3
-            conn = get_ma_connection()
-            conn.row_factory = _sqlite3.Row
-            row = conn.execute(
-                "SELECT email FROM mitarbeiter WHERE nachname=? AND vorname=? LIMIT 1",
-                (ma.get("nachname", ""), ma.get("vorname", ""))
-            ).fetchone()
-            conn.close()
-            if row:
-                email = row["email"] or ""
-        except Exception:
-            pass
-
-        # Abgelaufene / kritische Schulungen ermitteln
-        DRING_LABEL = {
-            "abgelaufen": "abgelaufen",
-            "rot":        "läuft in ≤1 Monat ab",
-            "orange":     "läuft in ≤2 Monaten ab",
-            "gelb":       "läuft in ≤3 Monaten ab",
+        e = {
+            "mitarbeiter_id": ma.get("id"),
+            "nachname":       ma.get("nachname", ""),
+            "vorname":        ma.get("vorname", ""),
         }
-        probleme = []
-        for typ, eintrag in ma.get("schulungen", {}).items():
-            dring = eintrag.get("_dringlichkeit", "")
-            if dring in DRING_LABEL:
-                anzeige = SCHULUNGSTYPEN_CFG.get(typ, {}).get("anzeige", typ)
-                gb      = eintrag.get("gueltig_bis", "—") or "—"
-                probleme.append(f"  • {anzeige}: {gb} ({DRING_LABEL[dring]})")
-
-        if not probleme:
-            from PySide6.QtWidgets import QMessageBox
-            QMessageBox.information(
-                self, "Keine Probleme",
-                f"{ma.get('vorname', '')} {ma.get('nachname', '')} hat keine abgelaufenen "
-                f"oder demnächst ablaufenden Schulungen."
-            )
-            return
-
-        vorname  = ma.get("vorname", "")
-        liste    = "\n".join(probleme)
-        betreff  = "Schulungsstatus – Handlungsbedarf"
-        text = (
-            f"Hallo {vorname},\n\n"
-            f"bei der Überprüfung deiner Schulungsunterlagen haben wir festgestellt, "
-            f"dass folgende Schulungen abgelaufen sind oder demnächst ablaufen:\n\n"
-            f"{liste}\n\n"
-            f"Bitte kümmere dich zeitnah um die Erneuerung.\n\n"
-            f"Bei Fragen stehen wir gerne zur Verfügung.\n\n"
-            f"Viele Grüße\nDRK Erste-Hilfe-Station FKB"
-        )
-        mailto = (
-            f"mailto:{urllib.parse.quote(email)}"
-            f"?subject={urllib.parse.quote(betreff)}"
-            f"&body={urllib.parse.quote(text)}"
-        )
-        try:
-            subprocess.Popen(["outlook", "/c", "ipm.note", "/m", mailto])
-        except FileNotFoundError:
-            import os
-            os.startfile(mailto)
+        _schulung_email_erstellen(self, e)
+        self.aktualisieren()
 
     def _prm_importieren(self):
         """PRM-Schulungen aus zertifikate_aktuell.xlsx importieren."""

@@ -370,6 +370,59 @@ def setze_informiert(eintrag_id: int, informiert_am: str) -> None:
         conn.commit()
 
 
+def lade_alle_schulungen_status(ma_id: int, monate: int = 3) -> list[dict]:
+    """
+    Lädt für einen Mitarbeiter pro Schulungstyp den neuesten Eintrag und
+    reichert ihn mit berechnetem Status an:
+      _anzeige        – Anzeigename des Schulungstyps
+      _tage_rest      – Tage bis zum Ablauf (None wenn kein Ablaufdatum/läuft nicht ab)
+      _dringlichkeit  – 'abgelaufen'/'rot'/'orange'/'gelb'/'ok'/'einmalig'/''
+      _kritisch       – True, wenn bereits abgelaufen oder in <= `monate` Monaten
+                         ablaufend (Basis für die Vorauswahl im E-Mail-Dialog)
+    Wird genutzt, um vor dem Erstellen einer Ablauf-E-Mail alle (nicht nur die
+    angeklickte) für den Mitarbeiter relevanten Schulungen anzuzeigen und
+    auswählbar zu machen.
+    """
+    _init_db()
+    heute   = date.today()
+    fenster = monate * 31
+    eintraege = lade_schulungseintraege(ma_id)
+
+    # Nur den neuesten Eintrag pro Schulungstyp berücksichtigen
+    neueste: dict[str, dict] = {}
+    for e in eintraege:
+        typ = e.get("schulungstyp", "")
+        bestehend = neueste.get(typ)
+        if bestehend is None:
+            neueste[typ] = e
+            continue
+        gb_neu = _parse_datum(e.get("gueltig_bis")) or _parse_datum(e.get("datum_absolviert"))
+        gb_alt = _parse_datum(bestehend.get("gueltig_bis")) or _parse_datum(bestehend.get("datum_absolviert"))
+        if gb_neu and (gb_alt is None or gb_neu > gb_alt):
+            neueste[typ] = e
+
+    result = []
+    for typ, e in neueste.items():
+        d = dict(e)
+        cfg = SCHULUNGSTYPEN_CFG.get(typ, {})
+        d["_anzeige"] = cfg.get("anzeige", typ)
+        laeuft_nicht_ab = bool(d.get("laeuft_nicht_ab"))
+        gb = _parse_datum(d.get("gueltig_bis"))
+        if laeuft_nicht_ab or gb is None:
+            d["_tage_rest"]     = None
+            d["_dringlichkeit"] = "einmalig" if laeuft_nicht_ab else ""
+            d["_kritisch"]      = False
+        else:
+            diff = (gb - heute).days
+            d["_tage_rest"]     = diff
+            d["_dringlichkeit"] = _dringlichkeit(gb, False)
+            d["_kritisch"]      = diff <= fenster
+        result.append(d)
+
+    result.sort(key=lambda x: (x["_tage_rest"] is None, x["_tage_rest"] if x["_tage_rest"] is not None else 999999))
+    return result
+
+
 # ─── Fehlende Dokumente ────────────────────────────────────────────────────────
 def speichere_fehlendes_dokument(ma_id: int, schulungstyp: str | None, dokument: str) -> int:
     _init_db()
