@@ -1,18 +1,18 @@
-# Nesk3 – Projektübersicht (Stand: 23.06.2026 / v3.8.0)
+# Nesk3 – Projektübersicht (Stand: 28.07.2026 / v3.9.0)
 
 ## Allgemein
 
 | Eigenschaft | Wert |
 |---|---|
 | **Anwendungsname** | Nesk3 – DRK Flughafen Köln |
-| **Version** | 3.8.0 |
+| **Version** | 3.9.0 |
 | **Organisation** | Deutsches Rotes Kreuz – Erste-Hilfe-Station Flughafen Köln/Bonn |
 | **Sprache** | Python 3.13 |
 | **GUI-Framework** | PySide6 (Qt 6) |
 | **Datenbank (lokal)** | SQLite (WAL-Modus) |
 | **Datenbank (Cloud)** | Turso (libSQL / SSOT-Synchronisierung) |
 | **Build-Tool** | PyInstaller |
-| **Git Remote** | https://github.com/koboltze-py/Nesk12.git |
+| **Git Remote** | https://github.com/koboltze-py/nesk13.git |
 
 ## Zweck
 
@@ -118,6 +118,7 @@ Nesk3/
 │   ├── handys_excel_export.py
 │   ├── handys_bericht.py
 │   ├── mail_functions.py
+│   ├── schulungen_email.py    ← Schulungs-Ablauf-E-Mails (Mitarbeiter + Peters)
 │   ├── laufzettel_functions.py
 │   ├── mitarbeiter_dokumente_functions.py
 │   ├── mitarbeiter_sync.py

@@ -164,6 +164,27 @@ CREATE TABLE IF NOT EXISTS verspaetungen (
 
 ---
 
+## `functions/schulungen_email.py` _(neu, 28.07.2026)_
+
+Erstellt Outlook-Entwürfe für Schulungs-Benachrichtigungen. Wird von allen drei E-Mail-Auslösepunkten in `gui/schulungen_kalender.py` (Kalender-Tab, Mitarbeiter-Liste, Mitarbeiter-Detaildialog) einheitlich über den gemeinsamen `_schulung_email_erstellen()`-Dialog aufgerufen.
+
+**Funktionen:**
+
+| Funktion | Beschreibung |
+|---|---|
+| `sende_schulung_ablauf_email(ma, schulungen, antragsart, informiert_am=None, absender_name=None, ma_email_override=None, fehlende_dokumente=None)` | Erstellt 2 Outlook-Entwürfe: an den Mitarbeiter (inkl. ZÜP-Unterlagen-Hinweis + fehlende Dokumente) und an Herrn Peters |
+| `_employee_email_text(...)` | Baut den Mitarbeiter-E-Mail-Text (mehrere Schulungen, ZÜP-Block, fehlende Dokumente) |
+| `_peters_email_text(...)` | Baut die interne Benachrichtigung an Herrn Peters |
+| `_mitarbeiter_email(nachname, vorname)` | Ermittelt hinterlegte E-Mail-Adresse aus der Mitarbeiter-DB |
+| `_mail_oeffnen_mit_fallback(an, betreff, text)` | Öffnet Outlook-Entwurf, Fallback falls Outlook nicht verfügbar |
+
+**Besonderheiten (28.07.2026-Update):**
+- Mehrfachauswahl mehrerer Schulungstypen in einer E-Mail möglich (`_SchulungAuswahlDialog` in `gui/schulungen_kalender.py`)
+- „Informiert am“-Datum wird konsistent in Kalender, Mitarbeiter-Liste und Detaildialog gepflegt/angezeigt
+- Fehlende Dokumente werden in allen 3 E-Mail-Auslösepunkten berücksichtigt
+
+---
+
 ## `functions/telefonnummern_db.py`
 
 **Datenbankpfad**: `database SQL/telefonnummern.db`

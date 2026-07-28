@@ -92,6 +92,15 @@ card.set_value("48")  # Wert dynamisch aktualisieren
 - **Grüner Punkt**: Notiz an diesem Tag
 - Beide gleichzeitig: Blauer Punkt links, grüner Punkt rechts
 
+### Eigene Notizen + Schulungen-Übersicht _(neu, 28.07.2026)_
+- Nebeneinander angeordnet (`QHBoxLayout`): links „Eigene Notizen“ (vertikal halbiert), rechts neue Kachel „Schulungen – bald ablaufend“
+- `_lade_schulungen_uebersicht()`: gruppiert Mitarbeiter mit ablaufenden/abgelaufenen Schulungen nach `(Schulungstyp, Dringlichkeit)`
+- Zeigt **Anzahl** statt Einzelnamen: `"{N} Mitarbeiter – {Anzeige} ({Dringlichkeit})"`
+- Bereits informierte Mitarbeiter werden aus der Hauptzahl ausgeschlossen, aber separat als „· X bereits informiert“ angezeigt
+- Farbkodierung wie im Schulungskalender (`abgelaufen`/`rot`/`orange`/`gelb`)
+- Sortierung: Dringlichkeit → Anzahl absteigend → Name; max. 20 Einträge, Rest als „… und X weitere Einträge“
+- Auto-Refresh alle 10 Minuten (`self._schulung_timer`) sowie bei jedem `refresh()`
+
 ---
 
 ## `gui/aufgaben.py` + `aufgaben_tag.py` + `aufgaben_haupt.py` – Aufgaben
@@ -294,6 +303,15 @@ PRM_KATEGORIEN = ["WCHS", "WCHR", "WCHC", "BLND", "DEAF", "DPNA", "UMNR", "STCR"
   - `intervall`-Typen (EH +2J, Refresher +1J): auto-berechnet
   - `direkt`-Typen (ZÜP, Ärztl.): manuelles Gültig-bis-Feld
   - `einmalig`-Typen: kein Ablaufdatum
+
+### E-Mail-Versand – einheitlicher Auswahl-Dialog _(neu, 28.07.2026)_
+- Alle drei Auslösepunkte (Kalender-Tab, Mitarbeiter-Liste, `_MitarbeiterDetailDialog`) verwenden dieselbe Funktion `_schulung_email_erstellen(parent, ma)`
+- `_SchulungAuswahlDialog`: Mehrfachauswahl der abgelaufenen/ablaufenden Schulungen eines Mitarbeiters
+- ZÜP-Antragsart-Abfrage (Neuantrag/Verlängerung), Override bei fehlender Mitarbeiter-E-Mail
+- Fehlende Dokumente werden erkannt und in die E-Mail aufgenommen
+- Ruft `sende_schulung_ablauf_email(...)` aus `functions/schulungen_email.py` auf
+- „Informiert am“-Datum wird nach Versand gespeichert und in Kalender, Mitarbeiter-Liste und Detaildialog konsistent angezeigt
+- ZÜP-Zelle: Zeilenumbruch-Fix in der Matrix-Tabelle
 
 ---
 

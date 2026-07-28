@@ -1,12 +1,37 @@
-# Changelog-Zusammenfassung (v3.4.0 – v3.8.0)
+# Changelog-Zusammenfassung (v3.4.0 – v3.9.0)
 
 > Vollständiger Changelog: `CHANGELOG.md` im Projektverzeichnis
 
 ---
 
-## v3.8.0 (aktuell, 23.06.2026)
+## v3.9.0 (aktuell, 28.07.2026)
 
-Aktuelle Version. Details in CHANGELOG.md.
+### Schulungen – Einheitlicher E-Mail-Dialog & Dashboard-Übersicht
+
+**`functions/schulungen_email.py`** _(neu)_
+- `sende_schulung_ablauf_email(...)`: erstellt 2 Outlook-Entwürfe (Mitarbeiter + Herr Peters), inkl. ZÜP-Unterlagen-Info und fehlender Dokumente
+
+**`gui/schulungen_kalender.py`**
+- Alle 3 E-Mail-Auslösepunkte (Kalender-Tab, Mitarbeiter-Liste, `_MitarbeiterDetailDialog`) nutzen jetzt denselben `_schulung_email_erstellen()`-Dialog mit Mehrfachauswahl
+- „Informiert am"-Datum konsistent überall gepflegt/angezeigt
+- ZÜP-Zelle: Zeilenumbruch-Fix in der Matrix-Tabelle
+- Fehlende Dokumente werden in allen 3 E-Mail-Pfaden berücksichtigt
+
+**`gui/dashboard.py`**
+- „Eigene Notizen" vertikal halbiert, neue Kachel „Schulungen – bald ablaufend" daneben (statt darunter)
+- Zeigt Anzahl Mitarbeiter pro Schulungstyp/Dringlichkeit (keine Einzelnamen), bereits informierte MA aus der Hauptzahl ausgeschlossen aber separat als Zusatz-Info angezeigt
+- Auto-Refresh alle 10 Minuten
+
+**Git**
+- Branch `dashi2` (Dashboard-Feature) in `main` gemergt
+- Neues Remote `nesk13` hinzugefügt und `main` dorthin gepusht
+- Vollständiges ZIP-Backup erstellt (`C:\Daten\Backup Nesk3\`)
+
+---
+
+## v3.8.0 (23.06.2026)
+
+Details in CHANGELOG.md.
 
 ---
 

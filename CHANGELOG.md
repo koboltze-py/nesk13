@@ -5,6 +5,28 @@ Format: `[Datum] Beschreibung – betroffene Dateien`
 
 ---
 
+## 28.07.2026 – v3.9.0
+
+### Schulungen – Einheitlicher E-Mail-Dialog, Dashboard-Übersicht
+
+#### `functions/schulungen_email.py` _(neu)_
+- `sende_schulung_ablauf_email(ma, schulungen, antragsart, informiert_am, absender_name, ma_email_override, fehlende_dokumente)`: erstellt zwei Outlook-Entwürfe (Mitarbeiter + Herr Peters) für eine oder mehrere abgelaufene/ablaufende Schulungen
+- Berücksichtigt ZÜP-Antragsart, fehlende Mitarbeiter-E-Mail (Override), fehlende Dokumente
+
+#### `gui/schulungen_kalender.py`
+- **Einheitlicher E-Mail-Workflow**: `_MitarbeiterDetailDialog._sende_email()` und `_MitarbeiterListeWidget._sende_email()` nutzen jetzt denselben `_schulung_email_erstellen()`-Dialog wie der Kalender-Tab (Mehrfachauswahl der Schulungen)
+- „Informiert am"-Datum wird konsistent in Kalender, Mitarbeiter-Liste und Detaildialog gepflegt und angezeigt
+- ZÜP-Zelle: Zeilenumbruch-Fix in der Matrix-Tabelle
+- Fehlende Dokumente werden in allen 3 E-Mail-Auslösepunkten berücksichtigt
+
+#### `gui/dashboard.py`
+- „Eigene Notizen" vertikal halbiert; neue Kachel „Schulungen – bald ablaufend" rechts daneben (statt darunter)
+- Übersicht zeigt Anzahl Mitarbeiter je Schulungstyp/Dringlichkeit (keine Einzelnamen)
+- Bereits informierte Mitarbeiter werden aus der Hauptzahl ausgeschlossen, aber zusätzlich als „· X bereits informiert" angezeigt
+- Farbkodierung wie im Schulungskalender (abgelaufen/rot/orange/gelb), Sortierung nach Dringlichkeit, Auto-Refresh alle 10 Minuten
+
+---
+
 ## 06.05.2026 – v3.7.0
 
 ### Sonderaufgaben – Vorfeldmitarbeiter & verbesserter Druckdialog
