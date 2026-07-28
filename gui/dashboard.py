@@ -469,7 +469,13 @@ class DashboardWidget(QWidget):
         self._km_table.setMaximumHeight(280)
         linke.addWidget(self._km_table)
 
-        # ── Eigene Notizen ─────────────────────────────────────────────────
+        # ── Eigene Notizen + Schulungen nebeneinander ────────────────────
+        notiz_schulung_row = QHBoxLayout()
+        notiz_schulung_row.setSpacing(10)
+
+        notiz_col = QVBoxLayout()
+        notiz_col.setSpacing(4)
+
         notiz_hdr_row = QHBoxLayout()
         notiz_hdr = QLabel("📝  Eigene Notizen")
         notiz_hdr.setFont(QFont("Arial", 11, QFont.Weight.Bold))
@@ -500,13 +506,12 @@ class DashboardWidget(QWidget):
         )
         self._notiz_archiv_btn.clicked.connect(self._notiz_archiv_dialog)
         notiz_hdr_row.addWidget(self._notiz_archiv_btn)
-        linke.addLayout(notiz_hdr_row)
+        notiz_col.addLayout(notiz_hdr_row)
 
         self._notiz_scroll = QScrollArea()
         self._notiz_scroll.setWidgetResizable(True)
         self._notiz_scroll.setFrameShape(QFrame.Shape.NoFrame)
-        self._notiz_scroll.setMinimumHeight(90)
-        self._notiz_scroll.setMaximumHeight(180)
+        self._notiz_scroll.setMinimumHeight(180)
         self._notiz_scroll.setStyleSheet("background: transparent;")
         self._notiz_container = QWidget()
         self._notiz_container.setStyleSheet("background: transparent;")
@@ -514,9 +519,13 @@ class DashboardWidget(QWidget):
         self._notiz_vlayout.setSpacing(5)
         self._notiz_vlayout.setContentsMargins(0, 0, 0, 0)
         self._notiz_scroll.setWidget(self._notiz_container)
-        linke.addWidget(self._notiz_scroll, stretch=1)
+        notiz_col.addWidget(self._notiz_scroll, 1)
+        notiz_schulung_row.addLayout(notiz_col, 1)
 
         # ── Schulungen – bald ablaufend ──────────────────────────────────
+        schulung_col = QVBoxLayout()
+        schulung_col.setSpacing(4)
+
         schulung_hdr_row = QHBoxLayout()
         schulung_hdr = QLabel("🎓  Schulungen – bald ablaufend")
         schulung_hdr.setFont(QFont("Arial", 11, QFont.Weight.Bold))
@@ -533,13 +542,12 @@ class DashboardWidget(QWidget):
         )
         self._schulung_ref_btn.clicked.connect(self._lade_schulungen_uebersicht)
         schulung_hdr_row.addWidget(self._schulung_ref_btn)
-        linke.addLayout(schulung_hdr_row)
+        schulung_col.addLayout(schulung_hdr_row)
 
         self._schulung_scroll = QScrollArea()
         self._schulung_scroll.setWidgetResizable(True)
         self._schulung_scroll.setFrameShape(QFrame.Shape.NoFrame)
-        self._schulung_scroll.setMinimumHeight(90)
-        self._schulung_scroll.setMaximumHeight(180)
+        self._schulung_scroll.setMinimumHeight(180)
         self._schulung_scroll.setStyleSheet("background: transparent;")
         self._schulung_container = QWidget()
         self._schulung_container.setStyleSheet("background: transparent;")
@@ -547,7 +555,10 @@ class DashboardWidget(QWidget):
         self._schulung_vlayout.setSpacing(5)
         self._schulung_vlayout.setContentsMargins(0, 0, 0, 0)
         self._schulung_scroll.setWidget(self._schulung_container)
-        linke.addWidget(self._schulung_scroll, stretch=1)
+        schulung_col.addWidget(self._schulung_scroll, 1)
+        notiz_schulung_row.addLayout(schulung_col, 1)
+
+        linke.addLayout(notiz_schulung_row, 1)
         outer.addLayout(linke, 6)
 
 
@@ -1604,7 +1615,8 @@ class DashboardWidget(QWidget):
 
     def _lade_schulungen_uebersicht(self):
         """Zeigt je Schulungsart die Anzahl betroffener Mitarbeiter (abgelaufen/bald
-        ablaufend). Bereits informierte Mitarbeiter zählen nicht mit."""
+        ablaufend). Bereits informierte Mitarbeiter zählen nicht in die Hauptanzahl,
+        werden aber je Gruppe zusätzlich als 'bereits informiert' ausgewiesen."""
         while self._schulung_vlayout.count():
             item = self._schulung_vlayout.takeAt(0)
             if item.widget():
@@ -1621,17 +1633,20 @@ class DashboardWidget(QWidget):
             self._schulung_vlayout.addWidget(leer)
             return
 
-        # Gruppierung: (anzeige, dringlichkeit) → Anzahl Mitarbeiter
+        # Gruppierung: (anzeige, dringlichkeit) → Anzahl Mitarbeiter (nicht informiert)
+        # sowie separat die Anzahl bereits informierter Mitarbeiter je Gruppe.
         gruppen: dict[tuple[str, str], int] = {}
+        informiert_gruppen: dict[tuple[str, str], int] = {}
         for ma in alle_ma:
             for typ, e in (ma.get("schulungen") or {}).items():
                 dring = e.get("_dringlichkeit", "")
                 if dring not in self._SCHULUNG_DRING_ORDER:
                     continue
-                if e.get("informiert"):
-                    continue  # bereits informierte Mitarbeiter zählen nicht mit
                 anzeige = SCHULUNGSTYPEN_CFG.get(typ, {}).get("anzeige", typ)
                 schluessel = (anzeige, dring)
+                if e.get("informiert"):
+                    informiert_gruppen[schluessel] = informiert_gruppen.get(schluessel, 0) + 1
+                    continue  # bereits informierte Mitarbeiter zählen nicht in die Hauptanzahl
                 gruppen[schluessel] = gruppen.get(schluessel, 0) + 1
 
         if not gruppen:
@@ -1648,9 +1663,13 @@ class DashboardWidget(QWidget):
         for (anzeige, dring), anzahl in eintraege[:20]:
             bg, fg = self._SCHULUNG_DRING_FARBEN.get(dring, ("#90a4ae", "#ffffff"))
             label_txt = self._SCHULUNG_DRING_LABEL.get(dring, "")
+            informiert_n = informiert_gruppen.get((anzeige, dring), 0)
+            informiert_txt = (
+                f" · {informiert_n} bereits informiert" if informiert_n else ""
+            )
             lbl = QLabel(
                 f"<b>{anzahl} Mitarbeiter</b> – {anzeige}  "
-                f"<span style='font-size:10px;'>({label_txt})</span>"
+                f"<span style='font-size:10px;'>({label_txt}{informiert_txt})</span>"
             )
             lbl.setWordWrap(True)
             lbl.setStyleSheet(
