@@ -1612,6 +1612,23 @@ class _VerspaetungExportDialog(QDialog):
         self._de_bis.setFixedWidth(140)
         form.addRow("Datum bis:", self._de_bis)
 
+        # Mitarbeiter-Filter (optional: nur ein einzelner Mitarbeiter)
+        self._combo_mitarbeiter = QComboBox()
+        self._combo_mitarbeiter.setEditable(True)
+        self._combo_mitarbeiter.addItem("— Alle Mitarbeiter —")
+        try:
+            namen = sorted({
+                e.get("mitarbeiter", "").strip()
+                for e in lade_verspaetungen()
+                if e.get("mitarbeiter", "").strip()
+            })
+        except Exception:
+            namen = []
+        self._combo_mitarbeiter.addItems(namen)
+        self._combo_mitarbeiter.setCurrentIndex(0)
+        self._combo_mitarbeiter.currentIndexChanged.connect(self._dateiname_aktualisieren)
+        form.addRow("Mitarbeiter:", self._combo_mitarbeiter)
+
         # Schnellauswahl-Buttons
         schnell_row = QHBoxLayout()
         for label, monate in [("Aktueller Monat", 0), ("Letzter Monat", -1), ("Letztes Quartal", -3)]:
@@ -1684,17 +1701,26 @@ class _VerspaetungExportDialog(QDialog):
         self._de_von.setDate(QDate(von.year, von.month, von.day))
         self._de_bis.setDate(QDate(bis.year, bis.month, bis.day))
 
+    def _ausgewaehlter_mitarbeiter(self) -> str | None:
+        """Gibt den gewählten Mitarbeiternamen zurück, oder None bei 'Alle Mitarbeiter'."""
+        text = self._combo_mitarbeiter.currentText().strip()
+        if not text or text == "— Alle Mitarbeiter —":
+            return None
+        return text
+
     def _dateiname_aktualisieren(self):
-        """Setzt den Dateinamen automatisch auf den gewählten Zeitraum."""
+        """Setzt den Dateinamen automatisch auf den gewählten Zeitraum (+ Mitarbeiter)."""
         verzeichnis = os.path.dirname(self._pfad_edit.text()) or _EXCEL_STANDARD_DIR
         von_q = self._de_von.date()
         bis_q = self._de_bis.date()
         von_str = f"{von_q.year():04d}-{von_q.month():02d}-{von_q.day():02d}"
         bis_str = f"{bis_q.year():04d}-{bis_q.month():02d}-{bis_q.day():02d}"
+        ma = self._ausgewaehlter_mitarbeiter()
+        ma_suffix = f"_{ma.replace(' ', '_').replace(',', '')}" if ma else ""
         if von_str == bis_str:
-            datei_name = f"Verspaetungen_{von_str}.xlsx"
+            datei_name = f"Verspaetungen{ma_suffix}_{von_str}.xlsx"
         else:
-            datei_name = f"Verspaetungen_{von_str}_bis_{bis_str}.xlsx"
+            datei_name = f"Verspaetungen{ma_suffix}_{von_str}_bis_{bis_str}.xlsx"
         self._pfad_edit.setText(os.path.join(verzeichnis, datei_name))
 
     def _pfad_auswaehlen(self):
@@ -1725,11 +1751,12 @@ class _VerspaetungExportDialog(QDialog):
         if self._von > self._bis:
             QMessageBox.warning(self, "Ungültiger Zeitraum", "Das Von-Datum darf nicht nach dem Bis-Datum liegen.")
             return
+        self._mitarbeiter = self._ausgewaehlter_mitarbeiter()
         self.accept()
 
     def get_werte(self):
-        """Gibt (datum_von, datum_bis, pfad) zurück."""
-        return self._von, self._bis, self._pfad
+        """Gibt (datum_von, datum_bis, pfad, mitarbeiter) zurück. mitarbeiter ist None für 'Alle'."""
+        return self._von, self._bis, self._pfad, self._mitarbeiter
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1920,11 +1947,17 @@ class MitarbeiterDokumenteWidget(QWidget):
         self._btn_word_druck.clicked.connect(self._dienstanweisung_word_druck)
         btn_row.addWidget(self._btn_word_druck)
 
-        self._btn_schulung = _btn("🎓  Schulungen öffnen", "#2e7d32", "#1b5e20")
-        self._btn_schulung.setToolTip("Zum Schulungen-Kalender wechseln")
-        self._btn_schulung.setVisible(False)
-        self._btn_schulung.clicked.connect(self._schulung_tab_oeffnen)
-        btn_row.addWidget(self._btn_schulung)
+        self._btn_zuep_antrag = _btn("🪪  ZÜP Antrag", "#2e7d32", "#1b5e20")
+        self._btn_zuep_antrag.setToolTip("ZÜP-Antragsformular auf koeln-bonn-airport.de öffnen")
+        self._btn_zuep_antrag.setVisible(False)
+        self._btn_zuep_antrag.clicked.connect(self._zuep_antrag_oeffnen)
+        btn_row.addWidget(self._btn_zuep_antrag)
+
+        self._btn_zuep_vorlagen = _btn("📄  Vorlagen", "#00695c", "#004d40")
+        self._btn_zuep_vorlagen.setToolTip("ZÜP-Vorlagen (Neuantrag / Verlängerung) öffnen")
+        self._btn_zuep_vorlagen.setVisible(False)
+        self._btn_zuep_vorlagen.clicked.connect(self._zuep_vorlagen_dialog)
+        btn_row.addWidget(self._btn_zuep_vorlagen)
 
         self._btn_laufzettel = _btn("📋  Laufzettel erstellen", "#5c35cc", "#4a2aa0")
         self._btn_laufzettel.setToolTip("Laufzettel (Onboarding-Checkliste) als Word-Dokument erstellen")
@@ -2929,6 +2962,65 @@ class MitarbeiterDokumenteWidget(QWidget):
             if self._tabs.count() > schulungen_idx:
                 self._tabs.setCurrentIndex(schulungen_idx)
 
+    # ── ZÜP: Antrag-Link & Vorlagen ────────────────────────────────────────
+
+    _ZUEP_URL = "https://www.koeln-bonn-airport.de/b2b/zugang-sicherheitsbereich/dauerhafter-zugang.html"
+    _ZUEP_PDF_NEUANTRAG = [
+        os.path.join(BASE_DIR, "Daten", "Züp", "ASR3067_ZUEP_ausgefuellt_Demo.pdf"),
+        os.path.join(BASE_DIR, "Daten", "Züp", "Checkliste_Unterlagen_Antragsteller_ASR3067.pdf"),
+    ]
+
+    def _zuep_antrag_oeffnen(self):
+        """Öffnet die ZÜP-Antragsseite des Flughafens Köln/Bonn im Standardbrowser."""
+        webbrowser.open(self._ZUEP_URL)
+
+    def _zuep_vorlagen_dialog(self):
+        """Dialog mit Vorlagen-Buttons (Neuantrag / Verlängerung) für ZÜP-Dokumente."""
+        dlg = QDialog(self)
+        dlg.setWindowTitle("📄 ZÜP-Vorlagen")
+        dlg.setMinimumWidth(320)
+        v = QVBoxLayout(dlg)
+        v.setSpacing(10)
+        v.setContentsMargins(16, 16, 16, 16)
+
+        info = QLabel("Vorlage auswählen:")
+        info.setStyleSheet("font-weight:bold; color:#333;")
+        v.addWidget(info)
+
+        btn_neuantrag = QPushButton("📝  Neuantrag")
+        btn_neuantrag.setStyleSheet(
+            "QPushButton{background:#2e7d32;color:white;border:none;border-radius:4px;"
+            "padding:10px;font-size:12px;} QPushButton:hover{background:#1b5e20;}"
+        )
+        btn_neuantrag.clicked.connect(lambda: self._zuep_neuantrag_oeffnen(dlg))
+        v.addWidget(btn_neuantrag)
+
+        btn_verlaengerung = QPushButton("🔄  Verlängerung")
+        btn_verlaengerung.setStyleSheet(
+            "QPushButton{background:#607d8b;color:white;border:none;border-radius:4px;"
+            "padding:10px;font-size:12px;} QPushButton:hover{background:#455a64;}"
+        )
+        v.addWidget(btn_verlaengerung)
+
+        btn_schliessen = QPushButton("Schließen")
+        btn_schliessen.clicked.connect(dlg.reject)
+        v.addWidget(btn_schliessen)
+
+        dlg.exec()
+
+    def _zuep_neuantrag_oeffnen(self, dlg: QDialog | None = None):
+        """Öffnet die beiden PDF-Vorlagen für einen ZÜP-Neuantrag."""
+        for pfad in self._ZUEP_PDF_NEUANTRAG:
+            if os.path.isfile(pfad):
+                if hasattr(os, "startfile"):
+                    os.startfile(pfad)
+                else:
+                    webbrowser.open(pfad)
+            else:
+                QMessageBox.warning(self, "Datei nicht gefunden", f"Datei nicht gefunden:\n{pfad}")
+        if dlg is not None:
+            dlg.accept()
+
     def _schulung_jahre_aktualisieren(self):
         if hasattr(self, '_schulungen_kalender'):
             self._schulungen_kalender._aktualisieren()
@@ -3161,7 +3253,7 @@ class MitarbeiterDokumenteWidget(QWidget):
         dlg = _VerspaetungExportDialog(parent=self)
         if dlg.exec() != QDialog.DialogCode.Accepted:
             return
-        datum_von, datum_bis, speicherpfad = dlg.get_werte()
+        datum_von, datum_bis, speicherpfad, mitarbeiter_filter = dlg.get_werte()
 
         try:
             eintraege = lade_verspaetungen()
@@ -3181,6 +3273,8 @@ class MitarbeiterDokumenteWidget(QWidget):
             if (p := _parse(e.get("datum", ""))) is not None
             and datum_von <= p <= datum_bis
         ]
+        if mitarbeiter_filter:
+            gefiltert = [e for e in gefiltert if e.get("mitarbeiter", "").strip() == mitarbeiter_filter]
         gefiltert.sort(key=lambda e: _parse(e.get("datum", "")) or _dt.min, reverse=True)
 
         # ── Namens-Ähnlichkeits-Prüfung ───────────────────────────────────
@@ -3446,7 +3540,8 @@ class MitarbeiterDokumenteWidget(QWidget):
         self._tabs.setTabVisible(1, is_stell)
         self._btn_verspaetung.setVisible(is_versp)
         self._btn_psa.setVisible(is_psa)
-        self._btn_schulung.setVisible(is_schulung)
+        self._btn_zuep_antrag.setVisible(is_schulung)
+        self._btn_zuep_vorlagen.setVisible(is_schulung)
         self._btn_word_druck.setVisible(is_dienstanw)
         self._btn_neu.setVisible(not is_versp and not is_psa and not is_schulung and not is_stell and not is_antrag and not is_dienstanw)
         self._tabs.setTabVisible(0, not is_versp and not is_psa and not is_schulung)  # Dateien-Tab ausblenden
@@ -3516,7 +3611,8 @@ class MitarbeiterDokumenteWidget(QWidget):
         self._btn_web.setVisible(False)
         self._btn_verspaetung.setVisible(False)
         self._btn_psa.setVisible(False)
-        self._btn_schulung.setVisible(False)
+        self._btn_zuep_antrag.setVisible(False)
+        self._btn_zuep_vorlagen.setVisible(False)
         self._btn_word_druck.setVisible(False)
         self._btn_laufzettel.setVisible(False)
         self._antraege_panel.setVisible(False)
@@ -3534,7 +3630,8 @@ class MitarbeiterDokumenteWidget(QWidget):
         self._btn_web.setVisible(False)
         self._btn_verspaetung.setVisible(False)
         self._btn_psa.setVisible(False)
-        self._btn_schulung.setVisible(False)
+        self._btn_zuep_antrag.setVisible(False)
+        self._btn_zuep_vorlagen.setVisible(False)
         self._btn_word_druck.setVisible(False)
         self._btn_laufzettel.setVisible(True)
         self._antraege_panel.setVisible(False)

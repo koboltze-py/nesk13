@@ -141,3 +141,48 @@ def toggle_ausgeschlossener_name(vollname: str) -> bool:
 def ist_ausgeschlossen(vollname: str) -> bool:
     """Prüft ob ein Vollname in der Ausschlussliste steht."""
     return vollname.lower().strip() in get_ausgeschlossene_namen()
+
+
+# ---------------------------------------------------------------------------
+# Bulmor-Konfiguration (Gesamtanzahl + Ampel-Schwellen für Word-Export)
+# ---------------------------------------------------------------------------
+
+_BULMOR_GESAMT_DEFAULT      = 5
+_BULMOR_SCHWELLE_ROT_DEFAULT  = 2   # < rot_unter  → rot (kritisch)
+_BULMOR_SCHWELLE_GELB_DEFAULT = 3   # < gelb_unter → gelb (eingeschränkt)
+
+
+def get_bulmor_gesamt() -> int:
+    """Gibt die Gesamtanzahl der Bulmor-Fahrzeuge zurück (Standard: 5)."""
+    try:
+        return int(get_setting('bulmor_gesamt', str(_BULMOR_GESAMT_DEFAULT)))
+    except (TypeError, ValueError):
+        return _BULMOR_GESAMT_DEFAULT
+
+
+def set_bulmor_gesamt(anzahl: int) -> bool:
+    """Speichert die Gesamtanzahl der Bulmor-Fahrzeuge."""
+    return set_setting('bulmor_gesamt', str(int(anzahl)))
+
+
+def get_bulmor_schwellen() -> tuple[int, int]:
+    """
+    Gibt (rot_unter, gelb_unter) zurück: Anzahl aktiver Bulmor, unter der die
+    Ampel im Word-Export rot bzw. gelb angezeigt wird.
+    """
+    try:
+        rot = int(get_setting('bulmor_schwelle_rot', str(_BULMOR_SCHWELLE_ROT_DEFAULT)))
+    except (TypeError, ValueError):
+        rot = _BULMOR_SCHWELLE_ROT_DEFAULT
+    try:
+        gelb = int(get_setting('bulmor_schwelle_gelb', str(_BULMOR_SCHWELLE_GELB_DEFAULT)))
+    except (TypeError, ValueError):
+        gelb = _BULMOR_SCHWELLE_GELB_DEFAULT
+    return rot, gelb
+
+
+def set_bulmor_schwellen(rot_unter: int, gelb_unter: int) -> bool:
+    """Speichert die Ampel-Schwellen für den Bulmor-Status."""
+    ok1 = set_setting('bulmor_schwelle_rot', str(int(rot_unter)))
+    ok2 = set_setting('bulmor_schwelle_gelb', str(int(gelb_unter)))
+    return ok1 and ok2

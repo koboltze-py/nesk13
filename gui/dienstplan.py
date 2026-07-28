@@ -265,8 +265,13 @@ class ExportDialog(QDialog):
         self._pax.setValue(0)
 
         self._bulmor = QSpinBox()
-        self._bulmor.setRange(0, 5)
-        self._bulmor.setValue(5)
+        try:
+            from functions.settings_functions import get_bulmor_gesamt
+            _bulmor_max = get_bulmor_gesamt()
+        except Exception:
+            _bulmor_max = 5
+        self._bulmor.setRange(0, _bulmor_max)
+        self._bulmor.setValue(_bulmor_max)
         self._bulmor.setToolTip("Anzahl fahrbereiter Bulmor-Fahrzeuge (wird im Dashboard-Format angezeigt)")
 
         self._einsaetze = QSpinBox()

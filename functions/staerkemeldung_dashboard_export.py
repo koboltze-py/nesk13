@@ -101,9 +101,9 @@ def _zeitgruppen_para(cell, gruppen, size=10):
         rz=p.add_run(f"{zeit}\t"); rz.font.size=Pt(size); rz.font.name="Aptos"
         rn=p.add_run(" / ".join(namen)); rn.font.size=Pt(size); rn.font.name="Aptos"
 
-def _bul_farben(n, gesamt=5):
-    if n<2: return "FF3333","KRITISCH"
-    if n<3: return "E07800","EINGESCHRAENKT"
+def _bul_farben(n, gesamt=5, rot_unter=2, gelb_unter=3):
+    if n<rot_unter: return "FF3333","KRITISCH"
+    if n<gelb_unter: return "E07800","EINGESCHRAENKT"
     if n>=gesamt: return "10A050","VOLLSTÄNDIG"
     return "10A050","AUSREICHEND"
 
@@ -114,7 +114,8 @@ class StaerkemeldungDashboardExport:
     def __init__(self, dienstplan_data, ausgabe_pfad, von_datum, bis_datum,
                  pax_zahl=0, ausgeschlossene_vollnamen=None,
                  bulmor_aktiv=5, einsaetze_zahl=0,
-                 sl_tag_name='', sl_nacht_name='', stationsleitung=''):
+                 sl_tag_name='', sl_nacht_name='', stationsleitung='',
+                 bulmor_gesamt=None):
         self._data          =dienstplan_data
         self._pfad          =ausgabe_pfad
         self._von           =von_datum
@@ -126,6 +127,13 @@ class StaerkemeldungDashboardExport:
         self._ausschl       ={n.lower().strip() for n in (ausgeschlossene_vollnamen or set())}
         self._bul_aktiv     =bulmor_aktiv
         self._stationslt    =stationsleitung
+        try:
+            from functions.settings_functions import get_bulmor_gesamt, get_bulmor_schwellen
+            self.BULMOR_GESAMT = bulmor_gesamt if bulmor_gesamt is not None else get_bulmor_gesamt()
+            self._bul_rot_unter, self._bul_gelb_unter = get_bulmor_schwellen()
+        except Exception:
+            self.BULMOR_GESAMT = bulmor_gesamt if bulmor_gesamt is not None else 5
+            self._bul_rot_unter, self._bul_gelb_unter = 2, 3
         # Schichtleiter-Namen (Nachname allein oder "Vorname Nachname") als Ausschluss-Set
         sl_namen = {n.lower().strip() for n in [sl_tag_name, sl_nacht_name] if n.strip()}
         kranke_ids=set(id(m) for m in dienstplan_data.get("kranke",[]))
@@ -327,7 +335,7 @@ class StaerkemeldungDashboardExport:
             r2=p.add_run(val); r2.bold=False; r2.font.size=Pt(13); r2.font.color.rgb=_rgb("000000")
             r2.font.name="Aptos"
         _trenn(lc,AZ,oben=True)
-        fc_hex,lbl_bul=_bul_farben(self._bul_aktiv, self.BULMOR_GESAMT)
+        fc_hex,lbl_bul=_bul_farben(self._bul_aktiv, self.BULMOR_GESAMT, self._bul_rot_unter, self._bul_gelb_unter)
         _para(lc,"BULMOR - FAHRZEUGSTATUS",bold=True,size=8.5,fg="000000",align="center",sb=1)
         ges=lc.add_paragraph(); ges.alignment=WD_ALIGN_PARAGRAPH.CENTER
         ges.paragraph_format.space_before=Pt(4); ges.paragraph_format.space_after=Pt(0)

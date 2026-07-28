@@ -2109,18 +2109,18 @@ class _PatientenDialog(QDialog):
         grid = QGridLayout(g)
         grid.setSpacing(6)
         grid.setContentsMargins(10, 18, 10, 10)
-        for col, txt in [(1, "Kriterium"), (2, "Befund / Beurteilung")]:
+        for col, txt in [(1, "Kriterium"), (2, "Befund / Beurteilung"), (3, "")]:
             lbl = QLabel(txt)
             lbl.setStyleSheet("font-weight:bold; font-size:11px; color:#555;")
             grid.addWidget(lbl, 0, col)
         abcde_defs = [
-            ("A", "Airway – Atemweg",        "frei / verlegt / Stridor / Fremdkörper …",           "_abcde_a"),
-            ("B", "Breathing – Atmung",       "unauffällig / Tachypnoe / Dyspnoe / SpO₂ …",    "_abcde_b"),
-            ("C", "Circulation – Kreislauf",  "Puls tastbar / RR … / Tachykardie / Schock …",     "_abcde_c"),
-            ("D", "Disability – Neurologie",  "wach / GCS … / orientiert / Pupillen … / AVPU …", "_abcde_d"),
-            ("E", "Exposure – Untersuchung",  "Wunden / Traumazeichen / Hypothermie / Hautturgur …",   "_abcde_e"),
+            ("A", "Airway – Atemweg",        "frei / verlegt / Stridor / Fremdkörper …",           "_abcde_a", "frei, unauffällig"),
+            ("B", "Breathing – Atmung",       "unauffällig / Tachypnoe / Dyspnoe / SpO₂ …",    "_abcde_b", "unauffällig"),
+            ("C", "Circulation – Kreislauf",  "Puls tastbar / RR … / Tachykardie / Schock …",     "_abcde_c", "Puls tastbar, unauffällig"),
+            ("D", "Disability – Neurologie",  "wach / GCS … / orientiert / Pupillen … / AVPU …", "_abcde_d", "wach, orientiert, unauffällig"),
+            ("E", "Exposure – Untersuchung",  "Wunden / Traumazeichen / Hypothermie / Hautturgur …",   "_abcde_e", "unauffällig, keine Verletzungen"),
         ]
-        for r, (letter, label_txt, placeholder, attr) in enumerate(abcde_defs, start=1):
+        for r, (letter, label_txt, placeholder, attr, ok_text) in enumerate(abcde_defs, start=1):
             badge = QLabel(letter)
             badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
             badge.setFixedSize(26, 26)
@@ -2132,9 +2132,20 @@ class _PatientenDialog(QDialog):
             lbl.setStyleSheet("font-size:11px;")
             edit = self._le(placeholder)
             setattr(self, attr, edit)
+            btn_ok = QPushButton("✓ o.B.")
+            btn_ok.setToolTip("Befund als unauffällig übernehmen (Feld bleibt weiterhin editierbar)")
+            btn_ok.setCursor(Qt.CursorShape.PointingHandCursor)
+            btn_ok.setFixedHeight(26)
+            btn_ok.setStyleSheet(
+                "QPushButton{background:#2e7d32;color:white;border:none;border-radius:4px;"
+                "padding:2px 8px;font-size:11px;}"
+                "QPushButton:hover{background:#1b5e20;}"
+            )
+            btn_ok.clicked.connect(lambda checked=False, e=edit, t=ok_text: e.setText(t))
             grid.addWidget(badge, r, 0)
             grid.addWidget(lbl,   r, 1)
             grid.addWidget(edit,  r, 2)
+            grid.addWidget(btn_ok, r, 3)
         grid.setColumnStretch(2, 1)
         return g
 

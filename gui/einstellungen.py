@@ -9,7 +9,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QLineEdit, QFrame, QMessageBox, QFileDialog, QGroupBox, QListWidget,
-    QComboBox, QInputDialog, QAbstractItemView, QListWidgetItem
+    QComboBox, QInputDialog, QAbstractItemView, QListWidgetItem, QSpinBox
 )
 from PySide6.QtGui import QFont
 from PySide6.QtCore import Qt
@@ -531,6 +531,64 @@ class EinstellungenWidget(QWidget):
 
         layout.addWidget(grp_schulung)
 
+        # ── Gruppe: Bulmor-Fahrzeuge (Word-Export Dienstplan) ───────────
+        grp_bulmor = QGroupBox("🚐 Bulmor-Fahrzeuge (Word-Export Dienstplan)")
+        grp_bulmor.setFont(QFont("Arial", 12, QFont.Weight.Bold))
+        grp_bulmor.setStyleSheet("""
+            QGroupBox {
+                border: 1px solid #dce8f5;
+                border-radius: 6px;
+                margin-top: 8px;
+                padding: 12px;
+                background-color: white;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 10px;
+                padding: 0 6px;
+                color: #0a5ba4;
+            }
+        """)
+        grp_bulmor_layout = QVBoxLayout(grp_bulmor)
+        grp_bulmor_layout.setSpacing(8)
+
+        bulmor_hint = QLabel(
+            "Legt fest, wie viele Bulmor-Fahrzeuge insgesamt zur Verfügung stehen und "
+            "ab welcher Anzahl aktiver Fahrzeuge die Ampel im Word-Export (Stärkemeldung) "
+            "rot bzw. gelb angezeigt wird."
+        )
+        bulmor_hint.setWordWrap(True)
+        bulmor_hint.setStyleSheet("color: #555; font-size: 11px; font-weight: normal;")
+        grp_bulmor_layout.addWidget(bulmor_hint)
+
+        bulmor_form = QHBoxLayout()
+        bulmor_form.addWidget(QLabel("Bulmor gesamt:"))
+        self._bulmor_gesamt_spin = QSpinBox()
+        self._bulmor_gesamt_spin.setRange(1, 50)
+        self._bulmor_gesamt_spin.setValue(5)
+        self._bulmor_gesamt_spin.setToolTip("Gesamtanzahl der Bulmor-Fahrzeuge")
+        bulmor_form.addWidget(self._bulmor_gesamt_spin)
+
+        bulmor_form.addSpacing(16)
+        bulmor_form.addWidget(QLabel("Rot, wenn weniger als:"))
+        self._bulmor_rot_spin = QSpinBox()
+        self._bulmor_rot_spin.setRange(0, 50)
+        self._bulmor_rot_spin.setValue(2)
+        self._bulmor_rot_spin.setToolTip("Anzahl aktiver Bulmor, unter der die Ampel rot (kritisch) ist")
+        bulmor_form.addWidget(self._bulmor_rot_spin)
+
+        bulmor_form.addSpacing(16)
+        bulmor_form.addWidget(QLabel("Gelb, wenn weniger als:"))
+        self._bulmor_gelb_spin = QSpinBox()
+        self._bulmor_gelb_spin.setRange(0, 50)
+        self._bulmor_gelb_spin.setValue(3)
+        self._bulmor_gelb_spin.setToolTip("Anzahl aktiver Bulmor, unter der die Ampel gelb (eingeschränkt) ist")
+        bulmor_form.addWidget(self._bulmor_gelb_spin)
+        bulmor_form.addStretch()
+
+        grp_bulmor_layout.addLayout(bulmor_form)
+        layout.addWidget(grp_bulmor)
+
         # ── Speichern-Button ───────────────────────────────────────────
         save_btn = QPushButton("💾 Einstellungen speichern")
         save_btn.setMinimumHeight(42)
@@ -548,12 +606,16 @@ class EinstellungenWidget(QWidget):
 
     def _load_settings(self):
         try:
-            from functions.settings_functions import get_setting
+            from functions.settings_functions import get_setting, get_bulmor_gesamt, get_bulmor_schwellen
             self._ordner_edit.setText(get_setting('dienstplan_ordner'))
             self._sa_ordner_edit.setText(get_setting('sonderaufgaben_ordner'))
             self._aocc_edit.setText(get_setting('aocc_datei'))
             self._c19_edit.setText(get_setting('code19_datei'))
             self._schulung_excel_edit.setText(get_setting('schulungen_excel_pfad'))
+            self._bulmor_gesamt_spin.setValue(get_bulmor_gesamt())
+            rot, gelb = get_bulmor_schwellen()
+            self._bulmor_rot_spin.setValue(rot)
+            self._bulmor_gelb_spin.setValue(gelb)
         except Exception:
             pass
         # E-Mobby Liste laden
@@ -978,12 +1040,14 @@ class EinstellungenWidget(QWidget):
             )
             return
         try:
-            from functions.settings_functions import set_setting
+            from functions.settings_functions import set_setting, set_bulmor_gesamt, set_bulmor_schwellen
             set_setting('dienstplan_ordner', ordner)
             set_setting('sonderaufgaben_ordner', sa_ordner)
             set_setting('aocc_datei', self._aocc_edit.text().strip())
             set_setting('code19_datei', self._c19_edit.text().strip())
             set_setting('schulungen_excel_pfad', self._schulung_excel_edit.text().strip())
+            set_bulmor_gesamt(self._bulmor_gesamt_spin.value())
+            set_bulmor_schwellen(self._bulmor_rot_spin.value(), self._bulmor_gelb_spin.value())
             QMessageBox.information(
                 self, "Gespeichert",
                 "✅ Einstellungen wurden gespeichert.\n\n"
