@@ -1,11 +1,11 @@
-# Nesk3 – Projektübersicht (Stand: 28.07.2026 / v3.9.0)
+# Nesk3 – Projektübersicht (Stand: 28.07.2026 / v3.9.1)
 
 ## Allgemein
 
 | Eigenschaft | Wert |
 |---|---|
 | **Anwendungsname** | Nesk3 – DRK Flughafen Köln |
-| **Version** | 3.9.0 |
+| **Version** | 3.9.1 |
 | **Organisation** | Deutsches Rotes Kreuz – Erste-Hilfe-Station Flughafen Köln/Bonn |
 | **Sprache** | Python 3.13 |
 | **GUI-Framework** | PySide6 (Qt 6) |

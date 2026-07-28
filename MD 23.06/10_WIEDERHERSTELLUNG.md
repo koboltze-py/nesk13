@@ -123,7 +123,7 @@ EXE wird erstellt als: `G EXE\Nesk3.exe`
 
 | Variable | Wert |
 |---|---|
-| `APP_VERSION` | `3.8.0` |
+| `APP_VERSION` | `3.9.1` |
 | `TURSO_URL` | `https://nesk-koboltze.aws-eu-west-1.turso.io` |
 | `FIORI_SIDEBAR_BG` | `#354a5e` |
 | `FIORI_BLUE` | `#0a6ed1` |

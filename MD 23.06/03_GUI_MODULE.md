@@ -193,6 +193,15 @@ card.set_value("48")  # Wert dynamisch aktualisieren
 
 **Methode `_zeige_sonderkategorie(pfad)`**: Lädt DokumentBrowserWidget für den angegebenen Pfad.
 
+### ZÜP-Antrag & Vorlagen _(neu, 28.07.2026)_
+- Button „ZÜP Antrag“ (`_zuep_antrag_oeffnen()`) öffnet die offizielle Seite des Flughafens Köln/Bonn für den dauerhaften Zugang zum Sicherheitsbereich
+- Button „Vorlagen“ (`_zuep_vorlagen_dialog()`) öffnet einen Dialog mit „Neuantrag“ (öffnet 2 PDF-Vorlagen aus `Daten/Züp/`) und „Verlängerung“ (Platzhalter ohne Funktion)
+
+### Verspätungs-Protokoll – Filter & Sortierung _(neu, 28.07.2026)_
+- `_VerspaetungExportDialog`: zusätzlicher Mitarbeiter-Filter für den Excel-Export (nur Verspätungen einer Person)
+- Zweite Filterzeile im Tab „Verspätung“: Mitarbeiter-Dropdown (`_versp_combo_mitarbeiter`) + Sortier-Dropdown (`_versp_combo_sort`) mit 7 Optionen (Datum auf-/absteigend, Mitarbeiter A–Z/Z–A, Verspätung in Minuten auf-/absteigend, Anzahl Verspätungen je Mitarbeiter)
+- `_versp_mitarbeiter_aktualisieren()` befüllt den Mitarbeiter-Filter aus allen bekannten Namen; Mitarbeiter-Zellen zeigen die Anzahl der Verspätungen im aktuellen Filter als Tooltip
+
 ---
 
 ## `gui/uebergabe.py` – Übergabeprotokolle
@@ -339,6 +348,7 @@ PRM_KATEGORIEN = ["WCHS", "WCHR", "WCHC", "BLND", "DEAF", "DPNA", "UMNR", "STCR"
 - Word-Export (Stärkemeldung)
 - HTML-Export
 - Parser für bestehende Word-Dokumente (`functions/dienstplan_parser.py`)
+- Bulmor-Fahrzeuganzahl im Word-Export-Dialog (SpinBox) wird jetzt aus `get_bulmor_gesamt()` geladen statt hartcodiert 5 _(neu, 28.07.2026)_
 
 ---
 
@@ -355,6 +365,14 @@ PRM_KATEGORIEN = ["WCHS", "WCHR", "WCHC", "BLND", "DEAF", "DPNA", "UMNR", "STCR"
 - Konfigurierbare App-Parameter
 - Speichert in `settings`-Tabelle der `nesk3.db`
 - Dark/Light Mode-Option, Farbschema
+- Gruppe „🚐 Bulmor-Fahrzeuge (Word-Export Dienstplan)“: Gesamtanzahl + Ampel-Schwellenwerte rot/gelb, konfigurierbar über `get_bulmor_gesamt()`/`set_bulmor_gesamt()` und `get_bulmor_schwellen()`/`set_bulmor_schwellen()` aus `functions/settings_functions.py` _(neu, 28.07.2026)_
+
+---
+
+## `gui/dienstliches.py` – Dienstliche Dokumente
+
+- Patienten erfassen (Formular inkl. ABCDE-Schema, Medikamentengabe-Tabelle)
+- ABCDE-Schema: je Zeile (A–E) ein „✓ o.B.“-Button, der einen Standardtext einträgt (z.B. „frei, unauffällig“), Felder bleiben editierbar _(neu, 28.07.2026)_
 
 ---
 

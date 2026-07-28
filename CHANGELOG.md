@@ -5,6 +5,31 @@ Format: `[Datum] Beschreibung – betroffene Dateien`
 
 ---
 
+## 28.07.2026 – v3.9.1
+
+### ZÜP-Antrag, Bulmor-Einstellungen, ABCDE-Schnellauswahl, Verspätungs-Filter
+
+#### `gui/mitarbeiter_dokumente.py`
+- „Schulungen öffnen"-Button ersetzt durch **„ZÜP Antrag"** (öffnet die offizielle Köln/Bonn-Airport-Seite für den dauerhaften Zugang) und **„Vorlagen"** (Dialog mit „Neuantrag" – öffnet zwei ZÜP-PDF-Vorlagen – und „Verlängerung")
+- Verspätungs-Export-Dialog (Excel): neuer Mitarbeiter-Filter, um nur die Verspätungen einer einzelnen Person zu exportieren
+- Verspätungs-Protokoll-Tab: zweite Filterzeile mit Mitarbeiter-Filter (Dropdown) und erweiterter Sortierung (Datum auf-/absteigend, Mitarbeiter A–Z/Z–A, Verspätung nach Minuten, Anzahl Verspätungen je Mitarbeiter)
+
+#### `gui/dienstliches.py`
+- ABCDE-Schema (Patienten erfassen): „✓ o.B."-Button je Zeile (A–E) füllt einen Standardtext („frei, unauffällig" usw.) in das jeweilige Feld, bleibt weiterhin frei editierbar
+
+#### `functions/settings_functions.py`, `gui/einstellungen.py`, `gui/dienstplan.py`, `functions/staerkemeldung_dashboard_export.py`
+- Bulmor-Fahrzeuganzahl und Ampel-Schwellenwerte (rot/gelb) für den Word-Export „Dienstplan" sind jetzt in den Einstellungen konfigurierbar statt hartcodiert
+
+#### `gui/dashboard.py`
+- Kachel „Schulungen – bald ablaufend" zeigt keine EH-/Refresher-Einträge mehr an
+
+#### Git / Build
+- Branch `28.7_anderung` in `main` gemergt, nach `nesk13` gepusht
+- Vollständiges ZIP-Backup erstellt (`C:\Daten\Backup Nesk3\`, Kopie in `Backup Neu ab 20.03\`)
+- EXE mit PyInstaller neu gebaut (Ausgabe: `dist/Nesk3.exe`)
+
+---
+
 ## 28.07.2026 – v3.9.0
 
 ### Schulungen – Einheitlicher E-Mail-Dialog, Dashboard-Übersicht

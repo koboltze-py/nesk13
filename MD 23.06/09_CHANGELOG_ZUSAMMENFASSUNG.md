@@ -1,10 +1,34 @@
-# Changelog-Zusammenfassung (v3.4.0 – v3.9.0)
+# Changelog-Zusammenfassung (v3.4.0 – v3.9.1)
 
 > Vollständiger Changelog: `CHANGELOG.md` im Projektverzeichnis
 
 ---
 
-## v3.9.0 (aktuell, 28.07.2026)
+## v3.9.1 (aktuell, 28.07.2026)
+
+### ZÜP-Antrag, Bulmor-Einstellungen, ABCDE-Schnellauswahl, Verspätungs-Filter
+
+**`gui/mitarbeiter_dokumente.py`**
+- „Schulungen öffnen“-Button ersetzt durch „ZÜP Antrag“ (öffnet Köln/Bonn-Airport-Seite für dauerhaften Zugang) und „Vorlagen“ (Dialog mit „Neuantrag“ – 2 PDF-Vorlagen – und „Verlängerung“)
+- Verspätungs-Export-Dialog (Excel): Mitarbeiter-Filter für Einzelexport
+- Verspätungs-Protokoll: zweite Filterzeile mit Mitarbeiter-Filter + erweiterter Sortierung (Datum, Mitarbeiter A–Z/Z–A, Verspätung in Minuten, Anzahl je Mitarbeiter)
+
+**`gui/dienstliches.py`**
+- ABCDE-Schema: „✓ o.B.“-Schnellauswahl-Button je Zeile (A–E), Felder bleiben editierbar
+
+**`functions/settings_functions.py`, `gui/einstellungen.py`, `gui/dienstplan.py`, `functions/staerkemeldung_dashboard_export.py`**
+- Bulmor-Fahrzeuganzahl + Ampel-Schwellenwerte (rot/gelb) für Dienstplan-Word-Export jetzt über Einstellungen konfigurierbar
+
+**`gui/dashboard.py`**
+- Kachel „Schulungen – bald ablaufend“ blendet EH/Refresher aus
+
+**Git / Build**
+- Branch `28.7_anderung` in `main` gemergt und nach `nesk13` gepusht
+- Vollständiges ZIP-Backup erstellt, EXE neu gebaut (`dist/Nesk3.exe`)
+
+---
+
+## v3.9.0 (28.07.2026)
 
 ### Schulungen – Einheitlicher E-Mail-Dialog & Dashboard-Übersicht
 
