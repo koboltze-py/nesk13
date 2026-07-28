@@ -1603,7 +1603,8 @@ class DashboardWidget(QWidget):
     _SCHULUNG_DRING_ORDER = {"abgelaufen": 0, "rot": 1, "orange": 2, "gelb": 3}
 
     def _lade_schulungen_uebersicht(self):
-        """Zeigt Mitarbeiter, deren Schulungen abgelaufen sind oder bald ablaufen."""
+        """Zeigt je Schulungsart die Anzahl betroffener Mitarbeiter (abgelaufen/bald
+        ablaufend). Bereits informierte Mitarbeiter zählen nicht mit."""
         while self._schulung_vlayout.count():
             item = self._schulung_vlayout.takeAt(0)
             if item.widget():
@@ -1620,34 +1621,36 @@ class DashboardWidget(QWidget):
             self._schulung_vlayout.addWidget(leer)
             return
 
-        eintraege = []
+        # Gruppierung: (anzeige, dringlichkeit) → Anzahl Mitarbeiter
+        gruppen: dict[tuple[str, str], int] = {}
         for ma in alle_ma:
             for typ, e in (ma.get("schulungen") or {}).items():
                 dring = e.get("_dringlichkeit", "")
                 if dring not in self._SCHULUNG_DRING_ORDER:
                     continue
+                if e.get("informiert"):
+                    continue  # bereits informierte Mitarbeiter zählen nicht mit
                 anzeige = SCHULUNGSTYPEN_CFG.get(typ, {}).get("anzeige", typ)
-                eintraege.append({
-                    "name":    f"{ma.get('nachname', '')}, {ma.get('vorname', '')}",
-                    "anzeige": anzeige,
-                    "gb":      e.get("gueltig_bis", "—") or "—",
-                    "dring":   dring,
-                })
+                schluessel = (anzeige, dring)
+                gruppen[schluessel] = gruppen.get(schluessel, 0) + 1
 
-        if not eintraege:
+        if not gruppen:
             leer = QLabel("✅  Keine bald ablaufenden Schulungen")
             leer.setStyleSheet("color: #888; font-size: 11px; padding: 4px 0;")
             self._schulung_vlayout.addWidget(leer)
             return
 
-        eintraege.sort(key=lambda x: self._SCHULUNG_DRING_ORDER.get(x["dring"], 9))
+        eintraege = sorted(
+            gruppen.items(),
+            key=lambda kv: (self._SCHULUNG_DRING_ORDER.get(kv[0][1], 9), -kv[1], kv[0][0]),
+        )
 
-        for e in eintraege[:20]:
-            bg, fg = self._SCHULUNG_DRING_FARBEN.get(e["dring"], ("#90a4ae", "#ffffff"))
-            label_txt = self._SCHULUNG_DRING_LABEL.get(e["dring"], "")
+        for (anzeige, dring), anzahl in eintraege[:20]:
+            bg, fg = self._SCHULUNG_DRING_FARBEN.get(dring, ("#90a4ae", "#ffffff"))
+            label_txt = self._SCHULUNG_DRING_LABEL.get(dring, "")
             lbl = QLabel(
-                f"<b>{e['name']}</b> – {e['anzeige']}  "
-                f"<span style='font-size:10px;'>(bis {e['gb']} · {label_txt})</span>"
+                f"<b>{anzahl} Mitarbeiter</b> – {anzeige}  "
+                f"<span style='font-size:10px;'>({label_txt})</span>"
             )
             lbl.setWordWrap(True)
             lbl.setStyleSheet(
@@ -1660,6 +1663,7 @@ class DashboardWidget(QWidget):
             mehr = QLabel(f"… und {len(eintraege) - 20} weitere Einträge")
             mehr.setStyleSheet("color: #888; font-size: 11px; padding: 2px 4px;")
             self._schulung_vlayout.addWidget(mehr)
+
 
     # ── Notizen ───────────────────────────────────────────────────────────────
 
