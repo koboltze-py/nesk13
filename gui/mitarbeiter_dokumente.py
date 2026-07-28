@@ -2316,14 +2316,43 @@ class MitarbeiterDokumenteWidget(QWidget):
         btn_reset.clicked.connect(self._versp_filter_reset)
         fl.addWidget(btn_reset)
 
-        self._versp_sort_desc = True
-        self._versp_btn_sort = _btn_light("▼ Neueste zuerst")
-        self._versp_btn_sort.setFixedHeight(28)
-        self._versp_btn_sort.setToolTip("Sortierreihenfolge umschalten: Neueste ↕ Älteste zuerst")
-        self._versp_btn_sort.clicked.connect(self._versp_sort_umschalten)
-        fl.addWidget(self._versp_btn_sort)
-
         layout.addWidget(filter_frame)
+
+        # ── 2. Filter-Zeile: Mitarbeiter-Filter + Sortierung ──────────────────
+        filter_frame2 = QFrame()
+        filter_frame2.setStyleSheet(
+            "QFrame{background:#f0f4ff;border:1px solid #c0ccee;"
+            "border-radius:4px;padding:4px;}"
+        )
+        fl2 = QHBoxLayout(filter_frame2)
+        fl2.setContentsMargins(8, 6, 8, 6)
+        fl2.setSpacing(10)
+
+        fl2.addWidget(QLabel("Mitarbeiter:"))
+        self._versp_combo_mitarbeiter = QComboBox()
+        self._versp_combo_mitarbeiter.setEditable(True)
+        self._versp_combo_mitarbeiter.setMinimumWidth(200)
+        self._versp_combo_mitarbeiter.addItem("— Alle Mitarbeiter —")
+        self._versp_combo_mitarbeiter.currentIndexChanged.connect(self._versp_filter_changed)
+        fl2.addWidget(self._versp_combo_mitarbeiter)
+
+        fl2.addWidget(QLabel("Sortieren nach:"))
+        self._versp_combo_sort = QComboBox()
+        self._versp_combo_sort.setMinimumWidth(260)
+        self._versp_combo_sort.addItems([
+            "🕒 Datum (neueste zuerst)",
+            "🕒 Datum (älteste zuerst)",
+            "🔤 Mitarbeiter (A–Z)",
+            "🔤 Mitarbeiter (Z–A)",
+            "⏱ Verspätung (meiste Minuten zuerst)",
+            "⏱ Verspätung (wenigste Minuten zuerst)",
+            "🔢 Anzahl Verspätungen je Mitarbeiter (meiste zuerst)",
+        ])
+        self._versp_combo_sort.currentIndexChanged.connect(self._versp_filter_changed)
+        fl2.addWidget(self._versp_combo_sort)
+        fl2.addStretch()
+
+        layout.addWidget(filter_frame2)
 
         # ── Ergebnis-Tabelle ──────────────────────────────────────────────────
         self._versp_table = QTableWidget()
@@ -3047,9 +3076,30 @@ class MitarbeiterDokumenteWidget(QWidget):
                 self._versp_combo_jahr.setCurrentIndex(i)
                 break
         self._versp_combo_jahr.blockSignals(False)
+        self._versp_mitarbeiter_aktualisieren()
+
+    def _versp_mitarbeiter_aktualisieren(self):
+        """Befüllt die Mitarbeiter-Filter-Auswahl mit allen bekannten Namen."""
+        current = self._versp_combo_mitarbeiter.currentText()
+        try:
+            namen = sorted({
+                e.get("mitarbeiter", "").strip()
+                for e in lade_verspaetungen()
+                if e.get("mitarbeiter", "").strip()
+            })
+        except Exception:
+            namen = []
+        self._versp_combo_mitarbeiter.blockSignals(True)
+        self._versp_combo_mitarbeiter.clear()
+        self._versp_combo_mitarbeiter.addItem("— Alle Mitarbeiter —")
+        self._versp_combo_mitarbeiter.addItems(namen)
+        idx = self._versp_combo_mitarbeiter.findText(current)
+        self._versp_combo_mitarbeiter.setCurrentIndex(idx if idx >= 0 else 0)
+        self._versp_combo_mitarbeiter.blockSignals(False)
 
     def _versp_filter_reset(self):
-        for w in (self._versp_combo_jahr, self._versp_combo_monat):
+        for w in (self._versp_combo_jahr, self._versp_combo_monat,
+                  self._versp_combo_mitarbeiter, self._versp_combo_sort):
             w.blockSignals(True)
             w.setCurrentIndex(0)
             w.blockSignals(False)
@@ -3061,17 +3111,8 @@ class MitarbeiterDokumenteWidget(QWidget):
     def _versp_filter_changed(self):
         self._versp_lade()
 
-    def _versp_sort_umschalten(self):
-        """Sortierreihenfolge (neueste ↕ älteste zuerst) umschalten."""
-        self._versp_sort_desc = not self._versp_sort_desc
-        if self._versp_sort_desc:
-            self._versp_btn_sort.setText("▼ Neueste zuerst")
-        else:
-            self._versp_btn_sort.setText("▲ Älteste zuerst")
-        self._versp_lade()
-
     def _versp_lade(self):
-        """Verspätungs-DB abfragen und Tabelle befüllen."""
+        """Verspätungs-DB abfragen, filtern, sortieren und Tabelle befüllen."""
         jahr   = self._versp_combo_jahr.currentData()
         monat  = self._versp_combo_monat.currentData()
         suche  = self._versp_suche.text().strip() or None
@@ -3081,7 +3122,11 @@ class MitarbeiterDokumenteWidget(QWidget):
             QMessageBox.critical(self, "Datenbankfehler", str(exc))
             return
 
-        # Datum-Sortierung (DD.MM.YYYY)
+        # Mitarbeiter-Filter (einzelner Mitarbeiter statt "Alle")
+        ma_filter = self._versp_combo_mitarbeiter.currentText().strip()
+        if ma_filter and ma_filter != "— Alle Mitarbeiter —":
+            eintraege = [e for e in eintraege if e.get("mitarbeiter", "").strip() == ma_filter]
+
         def _datum_key(e):
             try:
                 from datetime import datetime as _dt
@@ -3089,7 +3134,39 @@ class MitarbeiterDokumenteWidget(QWidget):
             except ValueError:
                 from datetime import datetime as _dt
                 return _dt.min
-        eintraege.sort(key=_datum_key, reverse=self._versp_sort_desc)
+
+        # Anzahl Verspätungen (verspaetung_min > 0) je Mitarbeiter vorab berechnen
+        # (wird sowohl für die Sortierung "Anzahl je Mitarbeiter" als auch als
+        # Tooltip-Information genutzt).
+        anzahl_je_mitarbeiter: dict[str, int] = {}
+        for e in eintraege:
+            if (e.get("verspaetung_min") or 0) > 0:
+                name = e.get("mitarbeiter", "")
+                anzahl_je_mitarbeiter[name] = anzahl_je_mitarbeiter.get(name, 0) + 1
+
+        sort_idx = self._versp_combo_sort.currentIndex()
+        if sort_idx == 0:      # Datum, neueste zuerst
+            eintraege.sort(key=_datum_key, reverse=True)
+        elif sort_idx == 1:    # Datum, älteste zuerst
+            eintraege.sort(key=_datum_key, reverse=False)
+        elif sort_idx == 2:    # Mitarbeiter A-Z
+            eintraege.sort(key=lambda e: (e.get("mitarbeiter", "").lower(), _datum_key(e)), reverse=False)
+        elif sort_idx == 3:    # Mitarbeiter Z-A
+            eintraege.sort(key=lambda e: e.get("mitarbeiter", "").lower(), reverse=True)
+        elif sort_idx == 4:    # Verspätung Minuten absteigend
+            eintraege.sort(key=lambda e: e.get("verspaetung_min") or 0, reverse=True)
+        elif sort_idx == 5:    # Verspätung Minuten aufsteigend
+            eintraege.sort(key=lambda e: e.get("verspaetung_min") or 0, reverse=False)
+        elif sort_idx == 6:    # Anzahl Verspätungen je Mitarbeiter, meiste zuerst
+            eintraege.sort(
+                key=lambda e: (
+                    -anzahl_je_mitarbeiter.get(e.get("mitarbeiter", ""), 0),
+                    e.get("mitarbeiter", "").lower(),
+                    -_datum_key(e).toordinal(),
+                )
+            )
+        else:
+            eintraege.sort(key=_datum_key, reverse=True)
 
         self._versp_eintraege = eintraege
         self._versp_table.setRowCount(len(eintraege))
@@ -3118,6 +3195,10 @@ class MitarbeiterDokumenteWidget(QWidget):
                 item = QTableWidgetItem(text)
                 if col == 5:
                     item.setBackground(color)
+                if col == 1:
+                    anz = anzahl_je_mitarbeiter.get(e.get("mitarbeiter", ""), 0)
+                    if anz:
+                        item.setToolTip(f"{anz} Verspätung{'en' if anz != 1 else ''} im aktuellen Filter")
                 item.setTextAlignment(Qt.AlignmentFlag.AlignCenter if col in (2, 3, 4, 5, 7) else Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft)
                 self._versp_table.setItem(row, col, item)
         n = len(eintraege)
