@@ -1639,6 +1639,8 @@ class DashboardWidget(QWidget):
         informiert_gruppen: dict[tuple[str, str], int] = {}
         for ma in alle_ma:
             for typ, e in (ma.get("schulungen") or {}).items():
+                if typ in ("EH", "Refresher"):
+                    continue
                 dring = e.get("_dringlichkeit", "")
                 if dring not in self._SCHULUNG_DRING_ORDER:
                     continue
