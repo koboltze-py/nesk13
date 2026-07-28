@@ -263,6 +263,11 @@ class DashboardWidget(QWidget):
         self._km_timer.timeout.connect(self._lade_krankmeldungen)
         self._km_timer.start(10 * 60 * 1000)
 
+        # Schulungen-Übersicht Auto-Refresh alle 10 Minuten
+        self._schulung_timer = QTimer(self)
+        self._schulung_timer.timeout.connect(self._lade_schulungen_uebersicht)
+        self._schulung_timer.start(10 * 60 * 1000)
+
     # ── UI-Aufbau ─────────────────────────────────────────────────────────
 
     def _build_ui(self):
@@ -500,7 +505,8 @@ class DashboardWidget(QWidget):
         self._notiz_scroll = QScrollArea()
         self._notiz_scroll.setWidgetResizable(True)
         self._notiz_scroll.setFrameShape(QFrame.Shape.NoFrame)
-        self._notiz_scroll.setMinimumHeight(180)
+        self._notiz_scroll.setMinimumHeight(90)
+        self._notiz_scroll.setMaximumHeight(180)
         self._notiz_scroll.setStyleSheet("background: transparent;")
         self._notiz_container = QWidget()
         self._notiz_container.setStyleSheet("background: transparent;")
@@ -509,7 +515,41 @@ class DashboardWidget(QWidget):
         self._notiz_vlayout.setContentsMargins(0, 0, 0, 0)
         self._notiz_scroll.setWidget(self._notiz_container)
         linke.addWidget(self._notiz_scroll, stretch=1)
+
+        # ── Schulungen – bald ablaufend ──────────────────────────────────
+        schulung_hdr_row = QHBoxLayout()
+        schulung_hdr = QLabel("🎓  Schulungen – bald ablaufend")
+        schulung_hdr.setFont(QFont("Arial", 11, QFont.Weight.Bold))
+        schulung_hdr.setStyleSheet(f"color: {FIORI_TEXT};")
+        schulung_hdr_row.addWidget(schulung_hdr)
+        schulung_hdr_row.addStretch()
+        from PySide6.QtWidgets import QPushButton as _QPB5
+        self._schulung_ref_btn = _QPB5("🔄")
+        self._schulung_ref_btn.setToolTip("Schulungsübersicht aktualisieren")
+        self._schulung_ref_btn.setFixedSize(26, 22)
+        self._schulung_ref_btn.setStyleSheet(
+            "QPushButton { background: #e8f0fe; border: 1px solid #c5d5f5; border-radius: 4px; font-size: 11px; }"
+            " QPushButton:hover { background: #c5d5f5; }"
+        )
+        self._schulung_ref_btn.clicked.connect(self._lade_schulungen_uebersicht)
+        schulung_hdr_row.addWidget(self._schulung_ref_btn)
+        linke.addLayout(schulung_hdr_row)
+
+        self._schulung_scroll = QScrollArea()
+        self._schulung_scroll.setWidgetResizable(True)
+        self._schulung_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self._schulung_scroll.setMinimumHeight(90)
+        self._schulung_scroll.setMaximumHeight(180)
+        self._schulung_scroll.setStyleSheet("background: transparent;")
+        self._schulung_container = QWidget()
+        self._schulung_container.setStyleSheet("background: transparent;")
+        self._schulung_vlayout = QVBoxLayout(self._schulung_container)
+        self._schulung_vlayout.setSpacing(5)
+        self._schulung_vlayout.setContentsMargins(0, 0, 0, 0)
+        self._schulung_scroll.setWidget(self._schulung_container)
+        linke.addWidget(self._schulung_scroll, stretch=1)
         outer.addLayout(linke, 6)
+
 
         # ── Rechte Seite: Uhr + Statistiken + DB-Status ───────────────────
         rechte = QVBoxLayout()
@@ -1424,6 +1464,9 @@ class DashboardWidget(QWidget):
         # Krankmeldungen aktueller Monat
         self._lade_krankmeldungen()
 
+        # Schulungen – bald ablaufend
+        self._lade_schulungen_uebersicht()
+
         # Dienstplan
         self._aktualisiere_dp_panels()
 
@@ -1542,6 +1585,81 @@ class DashboardWidget(QWidget):
     def get_termine(self) -> list[dict]:
         """Gibt die zuletzt geladenen Fahrzeug-Termine zurück (für badge/popup)."""
         return self._termine
+
+    # ── Schulungen-Übersicht ─────────────────────────────────────────────
+
+    _SCHULUNG_DRING_FARBEN = {
+        "abgelaufen": ("#b71c1c", "#ffffff"),
+        "rot":        ("#e53935", "#ffffff"),
+        "orange":     ("#ef6c00", "#ffffff"),
+        "gelb":       ("#f9a825", "#000000"),
+    }
+    _SCHULUNG_DRING_LABEL = {
+        "abgelaufen": "abgelaufen",
+        "rot":        "≤ 1 Monat",
+        "orange":     "≤ 2 Monate",
+        "gelb":       "≤ 3 Monate",
+    }
+    _SCHULUNG_DRING_ORDER = {"abgelaufen": 0, "rot": 1, "orange": 2, "gelb": 3}
+
+    def _lade_schulungen_uebersicht(self):
+        """Zeigt Mitarbeiter, deren Schulungen abgelaufen sind oder bald ablaufen."""
+        while self._schulung_vlayout.count():
+            item = self._schulung_vlayout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+
+        try:
+            from functions.schulungen_db import (
+                lade_mitarbeiter_mit_schulungen, SCHULUNGSTYPEN_CFG,
+            )
+            alle_ma = lade_mitarbeiter_mit_schulungen()
+        except Exception:
+            leer = QLabel("⚠️  Schulungsdaten konnten nicht geladen werden")
+            leer.setStyleSheet("color: #bb0000; font-size: 11px; padding: 4px 0;")
+            self._schulung_vlayout.addWidget(leer)
+            return
+
+        eintraege = []
+        for ma in alle_ma:
+            for typ, e in (ma.get("schulungen") or {}).items():
+                dring = e.get("_dringlichkeit", "")
+                if dring not in self._SCHULUNG_DRING_ORDER:
+                    continue
+                anzeige = SCHULUNGSTYPEN_CFG.get(typ, {}).get("anzeige", typ)
+                eintraege.append({
+                    "name":    f"{ma.get('nachname', '')}, {ma.get('vorname', '')}",
+                    "anzeige": anzeige,
+                    "gb":      e.get("gueltig_bis", "—") or "—",
+                    "dring":   dring,
+                })
+
+        if not eintraege:
+            leer = QLabel("✅  Keine bald ablaufenden Schulungen")
+            leer.setStyleSheet("color: #888; font-size: 11px; padding: 4px 0;")
+            self._schulung_vlayout.addWidget(leer)
+            return
+
+        eintraege.sort(key=lambda x: self._SCHULUNG_DRING_ORDER.get(x["dring"], 9))
+
+        for e in eintraege[:20]:
+            bg, fg = self._SCHULUNG_DRING_FARBEN.get(e["dring"], ("#90a4ae", "#ffffff"))
+            label_txt = self._SCHULUNG_DRING_LABEL.get(e["dring"], "")
+            lbl = QLabel(
+                f"<b>{e['name']}</b> – {e['anzeige']}  "
+                f"<span style='font-size:10px;'>(bis {e['gb']} · {label_txt})</span>"
+            )
+            lbl.setWordWrap(True)
+            lbl.setStyleSheet(
+                f"background: {bg}; color: {fg}; border-radius: 4px; "
+                "padding: 5px 8px; font-size: 12px;"
+            )
+            self._schulung_vlayout.addWidget(lbl)
+
+        if len(eintraege) > 20:
+            mehr = QLabel(f"… und {len(eintraege) - 20} weitere Einträge")
+            mehr.setStyleSheet("color: #888; font-size: 11px; padding: 2px 4px;")
+            self._schulung_vlayout.addWidget(mehr)
 
     # ── Notizen ───────────────────────────────────────────────────────────────
 
