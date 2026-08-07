@@ -39,7 +39,7 @@ BASE_DIR = _find_base_dir()
 
 ```python
 APP_NAME    = "Nesk3 – DRK Flughafen Köln"
-APP_VERSION = "3.9.1"
+APP_VERSION = "3.9.2"
 APP_LANG    = "de"
 ```
 

@@ -43,7 +43,7 @@ os.makedirs(_DB_DIR, exist_ok=True)
 
 # ─── Anwendungseinstellungen ──────────────────────────────────────────────────
 APP_NAME    = "Nesk3 – DRK Flughafen Köln"
-APP_VERSION = "3.9.1"
+APP_VERSION = "3.9.2"
 APP_LANG    = "de"
 
 # ─── Backup-Einstellungen ─────────────────────────────────────────────────────

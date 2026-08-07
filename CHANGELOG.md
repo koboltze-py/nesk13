@@ -5,6 +5,27 @@ Format: `[Datum] Beschreibung – betroffene Dateien`
 
 ---
 
+## 07.08.2026 – v3.9.2
+
+### Schulungen – "informiert" wird jetzt zuverlässig gespeichert (OneDrive-Sync-Fix) + Turso-Cloud-Sync
+
+#### `functions/schulungen_db.py`
+- **Bugfix**: `setze_informiert()` (und alle anderen Schreibfunktionen der Schulungen-Datenbank) speicherten Daten teils nicht zuverlässig über mehrere PCs hinweg, wenn `schulungen.db` per OneDrive synchronisiert wurde
+- Ursache: `PRAGMA journal_mode = WAL` erzeugte `schulungen.db-wal`/`-shm`-Sidecar-Dateien; Datenbankverbindungen wurden nie explizit geschlossen (`with _connect() as conn:` committet nur, schließt aber nicht) → OneDrive konnte die WAL/SHM-Dateien nicht zuverlässig synchronisieren
+- Fix: `_connect()` ist jetzt ein `@contextmanager`, der `journal_mode` auf `DELETE` umstellt (statt `WAL`), `synchronous = FULL` setzt und die Verbindung im `finally`-Block garantiert schließt
+- Neu: Turso-Cloud-Sync für `schulungen.db` ergänzt (bisher als einzige App-Datenbank ohne Cloud-Anbindung) – `mitarbeiter`, `schulungseintraege`, `fehlende_dokumente`, `schulungen_manuell` werden nun nach jeder Änderung zusätzlich in die Turso-Cloud gepusht
+
+#### `database/turso_sync.py`
+- `TABLE_MAP` um die 4 neuen `schul__*`-Tabellen erweitert
+- Entfernt: hart erzwungenes `PRAGMA journal_mode = WAL` in `pull_table()`/`pull_deletions()`, das den obigen Fix bei jedem Hintergrund-Sync (alle 30s) wieder rückgängig gemacht hätte
+
+#### Git / Build
+- Branch `fix` per Fast-Forward in `main` gemergt, nach `nesk13` gepusht
+- Vollständiges ZIP-Backup erstellt (`C:\Daten\Backup Nesk3\`)
+- EXE mit PyInstaller neu gebaut (Ausgabe: `dist/Nesk3.exe`)
+
+---
+
 ## 28.07.2026 – v3.9.1
 
 ### ZÜP-Antrag, Bulmor-Einstellungen, ABCDE-Schnellauswahl, Verspätungs-Filter

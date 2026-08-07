@@ -1,10 +1,29 @@
-# Changelog-Zusammenfassung (v3.4.0 – v3.9.1)
+# Changelog-Zusammenfassung (v3.4.0 – v3.9.2)
 
 > Vollständiger Changelog: `CHANGELOG.md` im Projektverzeichnis
 
 ---
 
-## v3.9.1 (aktuell, 28.07.2026)
+## v3.9.2 (aktuell, 07.08.2026)
+
+### Schulungen – "informiert" wird jetzt zuverlässig gespeichert (OneDrive-Sync-Fix) + Turso-Cloud-Sync
+
+**`functions/schulungen_db.py`**
+- Bugfix: `setze_informiert()` und alle anderen Schreibfunktionen speicherten Daten teils nicht zuverlässig über mehrere PCs hinweg (OneDrive + WAL-Modus-Konflikt bei `schulungen.db`)
+- `_connect()` ist jetzt ein `@contextmanager`: `journal_mode = DELETE` (statt `WAL`), `synchronous = FULL`, Verbindung wird im `finally`-Block garantiert geschlossen
+- Turso-Cloud-Sync für `schulungen.db` ergänzt (bisher einzige App-DB ohne Cloud-Anbindung): `mitarbeiter`, `schulungseintraege`, `fehlende_dokumente`, `schulungen_manuell`
+
+**`database/turso_sync.py`**
+- `TABLE_MAP` um die 4 neuen `schul__*`-Tabellen erweitert
+- Entfernt: erzwungenes `PRAGMA journal_mode = WAL` in `pull_table()`/`pull_deletions()`, das den obigen Fix bei jedem Hintergrund-Sync rückgängig gemacht hätte
+
+**Git / Build**
+- Branch `fix` per Fast-Forward in `main` gemergt, nach `nesk13` gepusht
+- Vollständiges ZIP-Backup erstellt, EXE neu gebaut (`dist/Nesk3.exe`)
+
+---
+
+## v3.9.1 (28.07.2026)
 
 ### ZÜP-Antrag, Bulmor-Einstellungen, ABCDE-Schnellauswahl, Verspätungs-Filter
 

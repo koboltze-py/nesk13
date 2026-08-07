@@ -60,6 +60,10 @@ Lokale Tabellen werden in Turso mit dem Dateiname-Prefix gespeichert:
 | `vorkommnisse.db` | `vorkommnisse` | `vork__vorkommnisse` |
 | `handys.db` | `handys` | `handys__handys` |
 | `handys.db` | `handys_historie` | `handys__historie` |
+| `schulungen.db` | `mitarbeiter` | `schul__mitarbeiter` |
+| `schulungen.db` | `schulungseintraege` | `schul__schulungseintraege` |
+| `schulungen.db` | `fehlende_dokumente` | `schul__fehlende_dokumente` |
+| `schulungen.db` | `schulungen_manuell` | `schul__schulungen_manuell` |
 
 **Tabellen, die NICHT synchronisiert werden**: `sqlite_sequence`, `backup_log`
 
