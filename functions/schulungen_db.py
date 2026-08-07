@@ -9,7 +9,9 @@ Excel-Stammdaten werden über excel_importieren() eingelesen.
 """
 import sqlite3
 import re
+from contextlib import contextmanager
 from pathlib import Path
+from typing import Iterator
 from datetime import datetime, date, timedelta
 from config import BASE_DIR as _BASE_DIR
 
@@ -56,13 +58,29 @@ _ANZEIGE_ZU_KEY = {cfg["anzeige"]: key for key, cfg in SCHULUNGSTYPEN_CFG.items(
 
 
 # ─── DB-Verbindung ────────────────────────────────────────────────────────────
-def _connect() -> sqlite3.Connection:
+# schulungen.db liegt in einem OneDrive-synchronisierten Ordner. Der frühere
+# WAL-Modus erzeugt zusätzliche "-wal"/"-shm"-Dateien, die von OneDrive nicht
+# synchronisiert werden können, solange irgendeine Verbindung offen ist – das
+# führte dazu, dass frische Änderungen (z. B. "Mitarbeiter informiert") nur
+# lokal in der WAL-Datei standen und nie zu OneDrive/anderen PCs gelangten.
+# Daher: klassischer Rollback-Journal-Modus (DELETE) + Verbindung wird nach
+# jedem Zugriff garantiert wieder geschlossen, damit immer nur die eine
+# konsistente schulungen.db-Datei existiert.
+@contextmanager
+def _connect() -> Iterator[sqlite3.Connection]:
     conn = sqlite3.connect(_DB_PFAD, timeout=5)
-    conn.execute("PRAGMA journal_mode = WAL")
-    conn.execute("PRAGMA synchronous  = NORMAL")
-    conn.execute("PRAGMA foreign_keys = ON")
-    conn.execute("PRAGMA busy_timeout  = 5000")
-    return conn
+    try:
+        conn.execute("PRAGMA journal_mode = DELETE")
+        conn.execute("PRAGMA synchronous  = FULL")
+        conn.execute("PRAGMA foreign_keys = ON")
+        conn.execute("PRAGMA busy_timeout  = 5000")
+        yield conn
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
 
 
 def _init_db():
