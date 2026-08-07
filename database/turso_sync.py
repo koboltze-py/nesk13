@@ -85,6 +85,11 @@ TABLE_MAP: dict[tuple[str, str], str] = {
     # handys.db
     ("handys.db", "handys"):                        "handys__handys",
     ("handys.db", "handys_historie"):               "handys__historie",
+    # schulungen.db
+    ("schulungen.db", "mitarbeiter"):                "schul__mitarbeiter",
+    ("schulungen.db", "schulungseintraege"):         "schul__schulungseintraege",
+    ("schulungen.db", "fehlende_dokumente"):         "schul__fehlende_dokumente",
+    ("schulungen.db", "schulungen_manuell"):         "schul__schulungen_manuell",
 }
 
 # Umgekehrtes Mapping: turso_tabelle → (db_pfad_key, lokale_tabelle)
@@ -847,7 +852,9 @@ def pull_table(db_path: str, table: str) -> int:
     conn = None
     try:
         conn = sqlite3.connect(db_path, timeout=5, check_same_thread=False)
-        conn.execute("PRAGMA journal_mode = WAL")
+        # Hinweis: journal_mode wird hier NICHT erzwungen (siehe schulungen.db,
+        # die bewusst im DELETE-Modus bleibt, um OneDrive-Sync-Konflikte zu
+        # vermeiden). Andere DBs behalten ihren eigenen, bereits persistierten Modus.
         cols = list(rows[0].keys())
         col_str = ", ".join([f'"{c}"' for c in cols])
         placeholders = ", ".join(["?" for _ in cols])
@@ -892,7 +899,6 @@ def pull_deletions(since_ts: str = "1970-01-01T00:00:00") -> int:
             db_path = _local_db_path(db_file)
             try:
                 conn = sqlite3.connect(db_path, timeout=5, check_same_thread=False)
-                conn.execute("PRAGMA journal_mode = WAL")
                 for local_table, ids in tables.items():
                     unique_ids = list(set(ids))
                     conn.executemany(

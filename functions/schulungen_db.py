@@ -83,6 +83,41 @@ def _connect() -> Iterator[sqlite3.Connection]:
         conn.close()
 
 
+# ─── Turso-Cloud-Sync (SSOT) ──────────────────────────────────────────────────
+# Wird nach jedem lokalen Schreibvorgang aufgerufen (fire-and-forget, Fehler
+# werden verschluckt – die lokale schulungen.db bleibt in jedem Fall die
+# unmittelbare Quelle der Wahrheit für die laufende App).
+def _push(table: str, row_id: int) -> None:
+    """Async-Push einer einzelnen Zeile nach Turso."""
+    try:
+        from database.turso_sync import push_row
+        with _connect() as conn:
+            conn.row_factory = sqlite3.Row
+            row = conn.execute(f"SELECT * FROM {table} WHERE id=?", (row_id,)).fetchone()
+        if row:
+            push_row(str(_DB_PFAD), table, dict(row))
+    except Exception:
+        pass
+
+
+def _push_delete(table: str, row_id: int) -> None:
+    """Löscht eine einzelne Zeile in Turso (nach lokalem DELETE)."""
+    try:
+        from database.turso_sync import push_delete
+        push_delete(str(_DB_PFAD), table, row_id)
+    except Exception:
+        pass
+
+
+def _push_delete_by_fk(table: str, fk_col: str, fk_value) -> None:
+    """Löscht alle Zeilen mit gegebenem Fremdschlüssel in Turso (Kaskaden-Löschung)."""
+    try:
+        from database.turso_sync import push_delete_by_fk
+        push_delete_by_fk(str(_DB_PFAD), table, fk_col, fk_value)
+    except Exception:
+        pass
+
+
 def _init_db():
     _DB_PFAD.parent.mkdir(parents=True, exist_ok=True)
     with _connect() as conn:
@@ -273,7 +308,9 @@ def speichere_mitarbeiter(daten: dict) -> int:
              now),
         )
         conn.commit()
-        return cur.lastrowid
+        neue_id = cur.lastrowid
+    _push("mitarbeiter", neue_id)
+    return neue_id
 
 
 def aktualisiere_mitarbeiter(ma_id: int, daten: dict) -> None:
@@ -290,6 +327,7 @@ def aktualisiere_mitarbeiter(ma_id: int, daten: dict) -> None:
              int(daten.get("aktiv", 1)), ma_id),
         )
         conn.commit()
+    _push("mitarbeiter", ma_id)
 
 
 def lade_mitarbeiter_namen() -> list[str]:
@@ -323,7 +361,9 @@ def speichere_schulungseintrag(daten: dict) -> int:
              daten.get("informiert_am") or None),
         )
         conn.commit()
-        return cur.lastrowid
+        neue_id = cur.lastrowid
+    _push("schulungseintraege", neue_id)
+    return neue_id
 
 
 def aktualisiere_schulungseintrag(eintrag_id: int, daten: dict) -> None:
@@ -348,6 +388,7 @@ def aktualisiere_schulungseintrag(eintrag_id: int, daten: dict) -> None:
              eintrag_id),
         )
         conn.commit()
+    _push("schulungseintraege", eintrag_id)
 
 
 def loesche_schulungseintrag(eintrag_id: int) -> None:
@@ -355,6 +396,7 @@ def loesche_schulungseintrag(eintrag_id: int) -> None:
     with _connect() as conn:
         conn.execute("DELETE FROM schulungseintraege WHERE id=?", (eintrag_id,))
         conn.commit()
+    _push_delete("schulungseintraege", eintrag_id)
 
 
 def loesche_mitarbeiter(ma_id: int) -> None:
@@ -364,6 +406,8 @@ def loesche_mitarbeiter(ma_id: int) -> None:
         conn.execute("DELETE FROM schulungseintraege WHERE mitarbeiter_id=?", (ma_id,))
         conn.execute("DELETE FROM mitarbeiter WHERE id=?", (ma_id,))
         conn.commit()
+    _push_delete_by_fk("schulungseintraege", "mitarbeiter_id", ma_id)
+    _push_delete("mitarbeiter", ma_id)
 
 
 def lade_schulungseintraege(ma_id: int) -> list[dict]:
@@ -386,6 +430,7 @@ def setze_informiert(eintrag_id: int, informiert_am: str) -> None:
             (informiert_am, eintrag_id),
         )
         conn.commit()
+    _push("schulungseintraege", eintrag_id)
 
 
 def lade_alle_schulungen_status(ma_id: int, monate: int = 3) -> list[dict]:
@@ -453,7 +498,9 @@ def speichere_fehlendes_dokument(ma_id: int, schulungstyp: str | None, dokument:
             (ma_id, schulungstyp or "", dokument, now),
         )
         conn.commit()
-        return cur.lastrowid
+        neue_id = cur.lastrowid
+    _push("fehlende_dokumente", neue_id)
+    return neue_id
 
 
 def lade_fehlende_dokumente(ma_id: int, nur_offene: bool = True) -> list[dict]:
@@ -492,6 +539,7 @@ def dokument_erledigt_setzen(dokument_id: int, erledigt: bool = True) -> None:
             (int(erledigt), erledigt_am, dokument_id),
         )
         conn.commit()
+    _push("fehlende_dokumente", dokument_id)
 
 
 def loesche_fehlendes_dokument(dokument_id: int) -> None:
@@ -499,6 +547,7 @@ def loesche_fehlendes_dokument(dokument_id: int) -> None:
     with _connect() as conn:
         conn.execute("DELETE FROM fehlende_dokumente WHERE id=?", (dokument_id,))
         conn.commit()
+    _push_delete("fehlende_dokumente", dokument_id)
 
 
 # ─── Kalender-Abfragen ────────────────────────────────────────────────────────
@@ -897,6 +946,13 @@ def excel_importieren(pfad: str | None = None) -> tuple[int, int]:
             importiert += 1
         conn.commit()
 
+    try:
+        from database.turso_sync import push_table_batch
+        push_table_batch(str(_DB_PFAD), "mitarbeiter")
+        push_table_batch(str(_DB_PFAD), "schulungseintraege")
+    except Exception:
+        pass
+
     return importiert, uebersprungen
 
 
@@ -919,7 +975,9 @@ def schulung_speichern(daten: dict) -> int:
              daten.get("aufgenommen_von", "")),
         )
         conn.commit()
-        return cur.lastrowid
+        neue_id = cur.lastrowid
+    _push("schulungen_manuell", neue_id)
+    return neue_id
 
 
 def schulung_aktualisieren(schulung_id: int, daten: dict) -> None:
@@ -936,6 +994,7 @@ def schulung_aktualisieren(schulung_id: int, daten: dict) -> None:
              daten.get("aufgenommen_von", ""), schulung_id),
         )
         conn.commit()
+    _push("schulungen_manuell", schulung_id)
 
 
 def schulung_loeschen(schulung_id: int) -> None:
@@ -943,6 +1002,7 @@ def schulung_loeschen(schulung_id: int) -> None:
     with _connect() as conn:
         conn.execute("DELETE FROM schulungen_manuell WHERE id=?", (schulung_id,))
         conn.commit()
+    _push_delete("schulungen_manuell", schulung_id)
 
 
 def lade_schulungen(jahr: int | None = None, mitarbeiter: str | None = None) -> list[dict]:
@@ -1295,6 +1355,13 @@ def prm_schulung_importieren(pfad: str | None = None) -> dict:
                 "gueltig_bis":       gb_str,
             })
         conn.commit()
+
+    try:
+        from database.turso_sync import push_table_batch
+        push_table_batch(str(_DB_PFAD), "mitarbeiter")
+        push_table_batch(str(_DB_PFAD), "schulungseintraege")
+    except Exception:
+        pass
 
     return {
         "importiert":   importiert,
